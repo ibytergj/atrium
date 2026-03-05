@@ -5,6 +5,7 @@ import { WebSocketServer } from 'ws'
 import { randomUUID } from 'crypto'
 import { validate } from '@atrium/protocol'
 import { createTickLoop } from './tick.js'
+import { createPresence } from './presence.js'
 
 const MIN_TICK_INTERVAL = 50
 const DEFAULT_TICK_INTERVAL = 1000
@@ -22,6 +23,7 @@ function sendError(ws, seq, code, message) {
 
 export function createSessionServer({ port = 3000, maxUsers = 100, world = null } = {}) {
   const sessions = new Map()
+  const presence = createPresence()
   const wss = new WebSocketServer({ port })
 
   function broadcast(message) {
@@ -89,6 +91,36 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
           }))
 
           session.tickStop = createTickLoop(session, negotiated).stop
+
+          // Step 1: notify existing clients of the newcomer
+          const joinNewcomer = { type: 'join', seq: nextSeq(), id: session.id }
+          const { valid: jv1 } = validate('server', joinNewcomer)
+          if (jv1) {
+            const raw = JSON.stringify(joinNewcomer)
+            for (const [sid, s] of sessions) {
+              if (sid !== session.id && s.ws.readyState === 1 /* OPEN */) {
+                s.ws.send(raw)
+              }
+            }
+          } else {
+            console.error('join validation failed for newcomer broadcast')
+          }
+
+          // Step 2: bootstrap the newcomer with each already-connected client
+          for (const [sid] of sessions) {
+            if (sid !== session.id && presence.has(sid)) {
+              const joinExisting = { type: 'join', seq: nextSeq(), id: sid }
+              const { valid: jv2 } = validate('server', joinExisting)
+              if (jv2) {
+                session.ws.send(JSON.stringify(joinExisting))
+              } else {
+                console.error('join validation failed for bootstrap')
+              }
+            }
+          }
+
+          // Step 3: add newcomer to presence
+          presence.add(session.id)
           break
         }
 
@@ -167,9 +199,21 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
 
     ws.on('close', () => {
       if (session) {
+        const departedId = session.id
         session.tickStop?.()
-        sessions.delete(session.id)
+        sessions.delete(departedId)
+        const removed = presence.remove(departedId)
         session = null
+
+        if (removed) {
+          const leaveMsg = { type: 'leave', seq: nextSeq(), id: departedId }
+          const { valid } = validate('server', leaveMsg)
+          if (valid) {
+            broadcast(leaveMsg)
+          } else {
+            console.error('leave validation failed')
+          }
+        }
       }
     })
 
@@ -194,5 +238,5 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
     clearInterval(keepaliveTimer)
   })
 
-  return { wss, sessions }
+  return { wss, sessions, presence }
 }

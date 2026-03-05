@@ -282,6 +282,9 @@
     <div class="panel-header">
       Message Log
       <div class="log-actions">
+        <label style="font-size:12px;font-weight:400;display:flex;align-items:center;gap:4px;cursor:pointer;">
+          <input type="checkbox" id="chkShowTicks" checked style="cursor:pointer;" /> Show tick messages
+        </label>
         <button id="btnClear">Clear</button>
         <button id="btnExport">Export JSON</button>
       </div>
@@ -291,8 +294,10 @@
 </div>
 
 <script>
+  const clientId = crypto.randomUUID()
+
   const TEMPLATES = {
-    hello:  () => JSON.stringify({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } }, null, 2),
+    hello:  () => JSON.stringify({ type: 'hello', id: clientId, capabilities: { tick: { interval: 1000 } } }, null, 2),
     ping:   () => JSON.stringify({ type: 'ping', clientTime: Date.now() }, null, 2),
     send:   () => JSON.stringify({ type: 'send', seq: 1, node: 'crate-01', field: 'translation', value: [1.0, 0.0, 0.0] }, null, 2),
     set:    () => JSON.stringify({ type: 'set', seq: 1, node: 'crate-01', field: 'translation', value: [1.0, 0.0, 0.0], serverTime: Date.now() }, null, 2),
@@ -323,6 +328,7 @@
   const logEl = document.getElementById('log')
   const btnClear = document.getElementById('btnClear')
   const btnExport = document.getElementById('btnExport')
+  const chkShowTicks = document.getElementById('chkShowTicks')
 
   // Init editor with first template
   editor.value = TEMPLATES[typeSelect.value]()
@@ -398,12 +404,25 @@
     addLogEntry('out', msgObj)
   }
 
+  function applyTickFilter() {
+    const show = chkShowTicks.checked
+    for (const entry of logEntries) {
+      if (entry.row && entry.msg.type === 'tick') {
+        entry.row.style.display = show ? '' : 'none'
+      }
+    }
+  }
+
+  chkShowTicks.addEventListener('change', applyTickFilter)
+
   function addLogEntry(dir, msg) {
     const entry = { dir, msg, ts: new Date() }
     logEntries.push(entry)
 
     const row = document.createElement('div')
     row.className = 'log-entry'
+    entry.row = row
+    if (msg.type === 'tick' && !chkShowTicks.checked) row.style.display = 'none'
 
     const summary = document.createElement('div')
     summary.className = 'log-summary'
@@ -483,9 +502,9 @@
       return
     }
     if (name === 'handshake') {
-      sendMessage({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } })
+      sendMessage({ type: 'hello', id: clientId, capabilities: { tick: { interval: 1000 } } })
     } else if (name === 'clocksync') {
-      sendMessage({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } })
+      sendMessage({ type: 'hello', id: clientId, capabilities: { tick: { interval: 1000 } } })
       await sleep(200)
       sendMessage({ type: 'ping', clientTime: Date.now() })
     } else if (name === 'pingflood') {
@@ -494,7 +513,7 @@
         await sleep(100)
       }
     } else if (name === 'movecrate') {
-      sendMessage({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } })
+      sendMessage({ type: 'hello', id: clientId, capabilities: { tick: { interval: 1000 } } })
       await sleep(300)
       sendMessage({ type: 'send', seq: 1, node: 'crate-01', field: 'translation', value: [5, 0, 0] })
     }
