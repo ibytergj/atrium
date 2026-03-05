@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ATRIUM Protocol Inspector</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    background: #1a1d27;
+    border-bottom: 1px solid #2d3148;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+  }
+  header h1 { font-size: 15px; font-weight: 700; letter-spacing: 0.05em; color: #a78bfa; }
+
+  .conn-bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+  }
+  .conn-bar input {
+    background: #0f1117;
+    border: 1px solid #2d3148;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 4px 8px;
+    font-size: 13px;
+    width: 260px;
+  }
+  .conn-bar input:focus { outline: none; border-color: #a78bfa; }
+
+  button {
+    background: #2d3148;
+    border: 1px solid #3d4163;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 4px 10px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover:not(:disabled) { background: #3d4163; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  button.primary { background: #5b21b6; border-color: #7c3aed; }
+  button.primary:hover:not(:disabled) { background: #6d28d9; }
+  button.danger { background: #7f1d1d; border-color: #991b1b; }
+  button.danger:hover:not(:disabled) { background: #991b1b; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    margin-left: 8px;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #6b7280;
+  }
+  .status-dot.connected { background: #34d399; }
+  .status-dot.error { background: #f87171; }
+
+  .main {
+    display: grid;
+    grid-template-columns: 380px 1fr;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    background: #1a1d27;
+    border-bottom: 1px solid #2d3148;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  .send-panel {
+    border-right: 1px solid #2d3148;
+    padding: 12px;
+    gap: 8px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .form-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .form-row label { font-size: 12px; color: #94a3b8; width: 40px; flex-shrink: 0; }
+
+  select {
+    flex: 1;
+    background: #0f1117;
+    border: 1px solid #2d3148;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  select:focus { outline: none; border-color: #a78bfa; }
+
+  #editor {
+    flex: 1;
+    background: #0f1117;
+    border: 1px solid #2d3148;
+    border-radius: 4px;
+    color: #e2e8f0;
+    padding: 8px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+    resize: none;
+    line-height: 1.5;
+    min-height: 0;
+  }
+  #editor:focus { outline: none; border-color: #a78bfa; }
+  #editor.error { border-color: #f87171; }
+
+  .error-msg {
+    font-size: 11px;
+    color: #f87171;
+    min-height: 16px;
+  }
+
+  .send-actions { display: flex; gap: 6px; }
+
+  .scenario-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .scenario-row label { font-size: 12px; color: #94a3b8; }
+
+  /* Log panel */
+  .log-panel {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  #log {
+    flex: 1;
+    overflow-y: auto;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 12px;
+  }
+
+  .log-entry {
+    border-bottom: 1px solid #1a1d27;
+    cursor: pointer;
+    user-select: none;
+  }
+  .log-entry:hover .log-summary { background: #1e2132; }
+
+  .log-summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 10px;
+    line-height: 1.4;
+  }
+
+  .log-ts { color: #64748b; width: 70px; flex-shrink: 0; }
+  .log-dir { width: 16px; flex-shrink: 0; font-weight: 700; }
+  .log-dir.out { color: #60a5fa; }
+  .log-dir.in  { color: #34d399; }
+  .log-type { flex: 1; }
+  .log-seq { color: #94a3b8; font-size: 11px; }
+
+  .log-body {
+    display: none;
+    background: #0a0c14;
+    padding: 8px 12px 8px 36px;
+    color: #a5b4fc;
+    white-space: pre;
+    overflow-x: auto;
+    border-top: 1px solid #1a1d27;
+  }
+  .log-entry.expanded .log-body { display: block; }
+
+  .log-actions { display: flex; gap: 6px; }
+
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0f1117; }
+  ::-webkit-scrollbar-thumb { background: #2d3148; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ATRIUM Protocol Inspector</h1>
+  <div class="conn-bar">
+    <input id="urlInput" type="text" value="ws://localhost:3000" />
+    <button id="btnConnect" class="primary">Connect</button>
+    <button id="btnDisconnect" disabled>Disconnect</button>
+    <div class="status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Disconnected</span>
+    </div>
+  </div>
+</header>
+
+<div class="main">
+  <!-- Send panel -->
+  <div class="panel send-panel">
+    <div class="panel-header">Send Message</div>
+
+    <div class="form-row">
+      <label>Type</label>
+      <select id="typeSelect">
+        <option>hello</option>
+        <option>ping</option>
+        <option>send</option>
+        <option>set</option>
+        <option>add</option>
+        <option>remove</option>
+        <option>join</option>
+        <option>leave</option>
+        <option>pong</option>
+        <option>tick</option>
+        <option>error</option>
+      </select>
+    </div>
+
+    <textarea id="editor" spellcheck="false"></textarea>
+    <div class="error-msg" id="editorError"></div>
+
+    <div class="send-actions">
+      <button id="btnSend" class="primary" disabled>Send</button>
+      <button id="btnReset">Reset</button>
+    </div>
+
+    <hr style="border-color:#2d3148; margin-top:4px;" />
+
+    <div class="scenario-row">
+      <label>Scenario</label>
+      <select id="scenarioSelect">
+        <option value="">— choose —</option>
+        <option value="handshake">Full handshake</option>
+        <option value="clocksync">Clock sync</option>
+        <option value="pingflood">Ping flood</option>
+      </select>
+      <button id="btnRunScenario">Run</button>
+    </div>
+  </div>
+
+  <!-- Log panel -->
+  <div class="panel log-panel">
+    <div class="panel-header">
+      Message Log
+      <div class="log-actions">
+        <button id="btnClear">Clear</button>
+        <button id="btnExport">Export JSON</button>
+      </div>
+    </div>
+    <div id="log"></div>
+  </div>
+</div>
+
+<script>
+  const TEMPLATES = {
+    hello:  () => JSON.stringify({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } }, null, 2),
+    ping:   () => JSON.stringify({ type: 'ping', clientTime: Date.now() }, null, 2),
+    send:   () => JSON.stringify({ type: 'send', seq: 1, node: 'my-node', field: 'translation', value: [0, 0, 0] }, null, 2),
+    set:    () => JSON.stringify({ type: 'set', seq: 1, node: 'my-node', field: 'translation', value: [0, 0, 0] }, null, 2),
+    add:    () => JSON.stringify({ type: 'add', seq: 1, node: { name: 'new-node', translation: [0, 0, 0] } }, null, 2),
+    remove: () => JSON.stringify({ type: 'remove', seq: 1, node: 'my-node' }, null, 2),
+    join:   () => JSON.stringify({ type: 'join', seq: 1 }, null, 2),
+    leave:  () => JSON.stringify({ type: 'leave', seq: 1 }, null, 2),
+    pong:   () => JSON.stringify({ type: 'pong', clientTime: Date.now(), serverTime: Date.now() }, null, 2),
+    tick:   () => JSON.stringify({ type: 'tick', seq: 1, serverTime: Date.now() }, null, 2),
+    error:  () => JSON.stringify({ type: 'error', code: 'UNKNOWN_MESSAGE', message: 'Unknown message' }, null, 2),
+  }
+
+  let ws = null
+  const logEntries = []
+
+  const urlInput = document.getElementById('urlInput')
+  const btnConnect = document.getElementById('btnConnect')
+  const btnDisconnect = document.getElementById('btnDisconnect')
+  const statusDot = document.getElementById('statusDot')
+  const statusText = document.getElementById('statusText')
+  const typeSelect = document.getElementById('typeSelect')
+  const editor = document.getElementById('editor')
+  const editorError = document.getElementById('editorError')
+  const btnSend = document.getElementById('btnSend')
+  const btnReset = document.getElementById('btnReset')
+  const scenarioSelect = document.getElementById('scenarioSelect')
+  const btnRunScenario = document.getElementById('btnRunScenario')
+  const logEl = document.getElementById('log')
+  const btnClear = document.getElementById('btnClear')
+  const btnExport = document.getElementById('btnExport')
+
+  // Init editor with first template
+  editor.value = TEMPLATES[typeSelect.value]()
+
+  typeSelect.addEventListener('change', () => {
+    const tmpl = TEMPLATES[typeSelect.value]
+    if (tmpl) editor.value = tmpl()
+    validateEditor()
+  })
+
+  editor.addEventListener('input', validateEditor)
+
+  function validateEditor() {
+    try {
+      JSON.parse(editor.value)
+      editor.classList.remove('error')
+      editorError.textContent = ''
+      return true
+    } catch (e) {
+      editor.classList.add('error')
+      editorError.textContent = e.message
+      return false
+    }
+  }
+
+  function setStatus(state, text) {
+    statusDot.className = 'status-dot' + (state ? ' ' + state : '')
+    statusText.textContent = text
+  }
+
+  function connect() {
+    const url = urlInput.value.trim()
+    setStatus('', 'Connecting…')
+    ws = new WebSocket(url)
+
+    ws.addEventListener('open', () => {
+      setStatus('connected', 'Connected')
+      btnConnect.disabled = true
+      btnDisconnect.disabled = false
+      btnSend.disabled = false
+    })
+
+    ws.addEventListener('message', (ev) => {
+      try {
+        const msg = JSON.parse(ev.data)
+        addLogEntry('in', msg)
+      } catch {
+        addLogEntry('in', { _raw: ev.data })
+      }
+    })
+
+    ws.addEventListener('close', () => {
+      setStatus('', 'Disconnected')
+      btnConnect.disabled = false
+      btnDisconnect.disabled = true
+      btnSend.disabled = true
+      ws = null
+    })
+
+    ws.addEventListener('error', () => {
+      setStatus('error', 'Error')
+    })
+  }
+
+  function disconnect() {
+    ws?.close()
+  }
+
+  function sendMessage(msgObj) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const raw = JSON.stringify(msgObj)
+    ws.send(raw)
+    addLogEntry('out', msgObj)
+  }
+
+  function addLogEntry(dir, msg) {
+    const entry = { dir, msg, ts: new Date() }
+    logEntries.push(entry)
+
+    const row = document.createElement('div')
+    row.className = 'log-entry'
+
+    const summary = document.createElement('div')
+    summary.className = 'log-summary'
+
+    const ts = document.createElement('span')
+    ts.className = 'log-ts'
+    ts.textContent = entry.ts.toTimeString().slice(0, 8)
+
+    const dirEl = document.createElement('span')
+    dirEl.className = 'log-dir ' + (dir === 'out' ? 'out' : 'in')
+    dirEl.textContent = dir === 'out' ? '→' : '←'
+
+    const typeEl = document.createElement('span')
+    typeEl.className = 'log-type'
+    typeEl.textContent = msg.type ?? '(raw)'
+
+    const seqEl = document.createElement('span')
+    seqEl.className = 'log-seq'
+    if (msg.seq != null) seqEl.textContent = `seq:${msg.seq}`
+
+    summary.append(ts, dirEl, typeEl, seqEl)
+
+    const body = document.createElement('pre')
+    body.className = 'log-body'
+    body.textContent = JSON.stringify(msg, null, 2)
+
+    row.append(summary, body)
+
+    row.addEventListener('click', () => row.classList.toggle('expanded'))
+
+    logEl.appendChild(row)
+    logEl.scrollTop = logEl.scrollHeight
+  }
+
+  btnConnect.addEventListener('click', connect)
+  btnDisconnect.addEventListener('click', disconnect)
+
+  btnSend.addEventListener('click', () => {
+    if (!validateEditor()) return
+    const msg = JSON.parse(editor.value)
+    // refresh clientTime for ping templates
+    if (msg.type === 'ping') msg.clientTime = Date.now()
+    sendMessage(msg)
+  })
+
+  btnReset.addEventListener('click', () => {
+    const tmpl = TEMPLATES[typeSelect.value]
+    if (tmpl) editor.value = tmpl()
+    validateEditor()
+  })
+
+  btnClear.addEventListener('click', () => {
+    logEntries.length = 0
+    logEl.innerHTML = ''
+  })
+
+  btnExport.addEventListener('click', () => {
+    const data = JSON.stringify(logEntries.map(e => ({
+      direction: e.dir,
+      timestamp: e.ts.toISOString(),
+      message: e.msg,
+    })), null, 2)
+    const blob = new Blob([data], { type: 'application/json' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `atrium-log-${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  })
+
+  // Scenarios
+  async function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
+
+  async function runScenario(name) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      alert('Connect to a server first.')
+      return
+    }
+    if (name === 'handshake') {
+      sendMessage({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } })
+    } else if (name === 'clocksync') {
+      sendMessage({ type: 'hello', id: 'inspector-01', capabilities: { tick: { interval: 1000 } } })
+      await sleep(200)
+      sendMessage({ type: 'ping', clientTime: Date.now() })
+    } else if (name === 'pingflood') {
+      for (let i = 0; i < 5; i++) {
+        sendMessage({ type: 'ping', clientTime: Date.now() })
+        await sleep(100)
+      }
+    }
+  }
+
+  btnRunScenario.addEventListener('click', () => {
+    const s = scenarioSelect.value
+    if (s) runScenario(s)
+  })
+
+  // Initial editor validation
+  validateEditor()
+</script>
+</body>
+</html>
