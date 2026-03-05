@@ -3,8 +3,14 @@
 
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
+import { fileURLToPath } from 'url'
+import { dirname, resolve } from 'path'
 import WebSocket from 'ws'
 import { createSessionServer } from '../src/session.js'
+import { createWorld } from '../src/world.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const FIXTURE_PATH = resolve(__dirname, '../../../tests/fixtures/space.gltf')
 
 const PORT = 3001
 
@@ -172,4 +178,102 @@ test('handles client disconnect cleanly', async () => {
   await new Promise((r) => setTimeout(r, 100))
 
   assert.ok(!server.sessions.has(serverHello.id), 'session should be removed from sessions map after disconnect')
+})
+
+// --- Integration tests (world state) ---
+
+test('send message mutates world and broadcasts set', async () => {
+  const world = await createWorld(FIXTURE_PATH)
+  const s = createSessionServer({ port: 3003, maxUsers: 10, world })
+
+  try {
+    const ws = new WebSocket('ws://localhost:3003')
+    await handshake(ws)
+
+    ws.send(JSON.stringify({ type: 'send', seq: 1, node: 'crate-01', field: 'translation', value: [9, 0, 0] }))
+    const msg = await waitForMessage(ws)
+
+    assert.equal(msg.type, 'set')
+    assert.equal(msg.node, 'crate-01')
+    assert.equal(msg.field, 'translation')
+    assert.deepEqual(msg.value, [9, 0, 0])
+
+    ws.close()
+    await waitForClose(ws)
+  } finally {
+    await new Promise((done) => s.wss.close(done))
+  }
+})
+
+test('send to unknown node returns NODE_NOT_FOUND error', async () => {
+  const world = await createWorld(FIXTURE_PATH)
+  const s = createSessionServer({ port: 3004, maxUsers: 10, world })
+
+  try {
+    const ws = new WebSocket('ws://localhost:3004')
+    await handshake(ws)
+
+    ws.send(JSON.stringify({ type: 'send', seq: 1, node: 'ghost', field: 'translation', value: [0, 0, 0] }))
+    const msg = await waitForMessage(ws)
+
+    assert.equal(msg.type, 'error')
+    assert.equal(msg.code, 'NODE_NOT_FOUND')
+
+    ws.close()
+    await waitForClose(ws)
+  } finally {
+    await new Promise((done) => s.wss.close(done))
+  }
+})
+
+test('add message broadcasts add to all clients', async () => {
+  const world = await createWorld(FIXTURE_PATH)
+  const s = createSessionServer({ port: 3005, maxUsers: 10, world })
+
+  try {
+    const ws1 = new WebSocket('ws://localhost:3005')
+    await handshake(ws1)
+
+    const ws2 = new WebSocket('ws://localhost:3005')
+    await handshake(ws2)
+
+    const ws2Receive = waitForMessage(ws2)
+    ws1.send(JSON.stringify({ type: 'add', seq: 1, node: { name: 'new-node-01', translation: [0, 2, 0] } }))
+
+    const msg = await ws2Receive
+    assert.equal(msg.type, 'add')
+    assert.equal(msg.node.name, 'new-node-01')
+
+    ws1.close()
+    ws2.close()
+    await Promise.all([waitForClose(ws1), waitForClose(ws2)])
+  } finally {
+    await new Promise((done) => s.wss.close(done))
+  }
+})
+
+test('remove message broadcasts remove to all clients', async () => {
+  const world = await createWorld(FIXTURE_PATH)
+  const s = createSessionServer({ port: 3006, maxUsers: 10, world })
+
+  try {
+    const ws1 = new WebSocket('ws://localhost:3006')
+    await handshake(ws1)
+
+    const ws2 = new WebSocket('ws://localhost:3006')
+    await handshake(ws2)
+
+    const ws2Receive = waitForMessage(ws2)
+    ws1.send(JSON.stringify({ type: 'remove', seq: 1, node: 'crate-01' }))
+
+    const msg = await ws2Receive
+    assert.equal(msg.type, 'remove')
+    assert.equal(msg.node, 'crate-01')
+
+    ws1.close()
+    ws2.close()
+    await Promise.all([waitForClose(ws1), waitForClose(ws2)])
+  } finally {
+    await new Promise((done) => s.wss.close(done))
+  }
 })

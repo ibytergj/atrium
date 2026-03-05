@@ -200,6 +200,15 @@ describe('add', () => {
     assert.equal(valid, true)
   })
 
+  it('validates add with parent set to null', () => {
+    const { valid } = validate('client', {
+      type: 'add', seq: 1,
+      parent: null,
+      node: { name: 'box-01' }
+    })
+    assert.equal(valid, true)
+  })
+
   it('rejects add missing node', () => {
     const { valid } = validate('client', { type: 'add', seq: 1 })
     assert.equal(valid, false)

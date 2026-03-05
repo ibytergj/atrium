@@ -20,9 +20,18 @@ function sendError(ws, seq, code, message) {
   ws.send(JSON.stringify({ type: 'error', code, message, ...(seq != null ? { seq } : {}) }))
 }
 
-export function createSessionServer({ port = 3000, maxUsers = 100 } = {}) {
+export function createSessionServer({ port = 3000, maxUsers = 100, world = null } = {}) {
   const sessions = new Map()
   const wss = new WebSocketServer({ port })
+
+  function broadcast(message) {
+    const raw = JSON.stringify(message)
+    for (const s of sessions.values()) {
+      if (s.ws.readyState === 1 /* OPEN */) {
+        s.ws.send(raw)
+      }
+    }
+  }
 
   wss.on('connection', (ws) => {
     let session = null
@@ -89,6 +98,65 @@ export function createSessionServer({ port = 3000, maxUsers = 100 } = {}) {
             clientTime: msg.clientTime,
             serverTime: Date.now(),
           }))
+          break
+        }
+
+        case 'send': {
+          if (!world) {
+            sendError(ws, msg.seq, 'UNKNOWN_MESSAGE', 'World not loaded')
+            break
+          }
+          const result = world.setField(msg.node, msg.field, msg.value)
+          if (!result.ok) {
+            sendError(ws, msg.seq, result.code, `${result.code}: ${msg.node}`)
+            break
+          }
+          broadcast({
+            type: 'set',
+            seq: nextSeq(),
+            node: msg.node,
+            field: msg.field,
+            value: msg.value,
+            serverTime: Date.now(),
+          })
+          break
+        }
+
+        case 'add': {
+          if (!world) {
+            sendError(ws, msg.seq, 'UNKNOWN_MESSAGE', 'World not loaded')
+            break
+          }
+          const result = world.addNode(msg.node, msg.parent)
+          if (!result.ok) {
+            sendError(ws, msg.seq, result.code, `${result.code}: ${msg.parent}`)
+            break
+          }
+          broadcast({
+            type: 'add',
+            seq: nextSeq(),
+            format: msg.format ?? 'gltf',
+            ...(msg.parent != null ? { parent: msg.parent } : {}),
+            node: msg.node,
+          })
+          break
+        }
+
+        case 'remove': {
+          if (!world) {
+            sendError(ws, msg.seq, 'UNKNOWN_MESSAGE', 'World not loaded')
+            break
+          }
+          const result = world.removeNode(msg.node)
+          if (!result.ok) {
+            sendError(ws, msg.seq, result.code, `${result.code}: ${msg.node}`)
+            break
+          }
+          broadcast({
+            type: 'remove',
+            seq: nextSeq(),
+            node: msg.node,
+          })
           break
         }
 

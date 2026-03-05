@@ -8,7 +8,7 @@
     "type": { "const": "add" },
     "seq": { "type": "integer", "minimum": 0 },
     "format": { "type": "string", "default": "gltf" },
-    "parent": { "type": "string" },
+    "parent": { "type": ["string", "null"] },
     "node": {
       "type": "object",
       "required": ["name"],

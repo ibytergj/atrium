@@ -1,0 +1,30 @@
+{
+  "asset": { "version": "2.0", "generator": "Atrium test fixture" },
+  "extras": {
+    "atrium": {
+      "version": "0.1.0",
+      "world": {
+        "name": "Test World",
+        "maxUsers": 10,
+        "navigation": "WALK",
+        "capabilities": {
+          "tick": { "interval": 1000 },
+          "physics": false,
+          "chat": false
+        }
+      }
+    }
+  },
+  "scene": 0,
+  "scenes": [{ "name": "Scene", "nodes": [0, 1] }],
+  "nodes": [
+    {
+      "name": "crate-01",
+      "translation": [1.0, 0.0, 0.0]
+    },
+    {
+      "name": "lamp-01",
+      "translation": [3.0, 0.0, 0.0]
+    }
+  ]
+}
