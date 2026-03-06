@@ -8,6 +8,12 @@
     "type": { "const": "join" },
     "seq": { "type": "integer", "minimum": 0 },
     "id": { "type": "string", "minLength": 1 },
+    "position": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
     "avatar": {
       "type": "object",
       "properties": {

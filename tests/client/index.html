@@ -52,6 +52,14 @@
   }
   .conn-bar input:focus { outline: none; border-color: #a78bfa; }
 
+  .cam-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  .cam-bar label { font-size: 12px; color: #94a3b8; }
+
   button {
     background: #2d2d2d;
     border: 1px solid #444;
@@ -292,6 +300,13 @@
       <span id="statusText">Disconnected</span>
     </div>
   </div>
+  <div class="cam-bar">
+    <label for="cameraMode">Camera:</label>
+    <select id="cameraMode">
+      <option value="orbit">Orbit</option>
+      <option value="walk">Walk</option>
+    </select>
+  </div>
 </header>
 
 <div class="main">
@@ -308,6 +323,7 @@
           <option selected>send</option>
           <option>add</option>
           <option>remove</option>
+          <option>view</option>
         </select>
       </div>
       <textarea id="editor" spellcheck="false"></textarea>
@@ -332,6 +348,9 @@
           <label>
             <input type="checkbox" id="chkShowTicks" checked /> Show tick messages
           </label>
+          <label>
+            <input type="checkbox" id="chkShowViews" /> Show view messages
+          </label>
           <button id="btnClear">Clear</button>
         </div>
       </div>
@@ -355,52 +374,59 @@ import { DocumentView } from 'https://esm.sh/@gltf-transform/view@4.3.0?deps=thr
 // Configuration
 // ---------------------------------------------------------------------------
 const WORLD_GLTF_PATH = '../fixtures/space.gltf'
+const WALK_SPEED = 4                                    // units/second
+const WALK_EYE_Y = 1.7                                  // eye height in Walk mode
+const LOOK_SENSITIVITY = 0.2 * (Math.PI / 180)         // radians per pixel
+const VIEW_THRESHOLD = 0.001                            // min position delta to broadcast
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 const clientId = crypto.randomUUID()
+let myServerId = null   // server-assigned ID received in hello response
 
 let ws = null
-let gltfDoc = null       // gltf-transform Document
-let docView = null       // DocumentView
+let wsConnected = false
+let gltfDoc = null
+let docView = null
 const logEntries = []
 
+// Avatar registry: serverId -> THREE.Group (pure Three.js, not in glTF doc)
+const avatars = new Map()
+
+// Camera / walk state
+let cameraMode = 'orbit'
+const keysDown = new Set()
+let walkYaw   = 0
+let walkPitch = 0
+let walkMouseDown = false
+let walkLastX = 0
+let walkLastY = 0
+let lastBroadcastPos = null
+let lastFrameTime = performance.now()
+
 // ---------------------------------------------------------------------------
-// Message templates (client-sendable types only)
+// Message templates
 // ---------------------------------------------------------------------------
 const TEMPLATES = {
   hello:  () => JSON.stringify({
-    type: 'hello',
-    id: clientId,
-    capabilities: { tick: { interval: 1000 } }
+    type: 'hello', id: clientId, capabilities: { tick: { interval: 1000 } }
   }, null, 2),
 
-  ping: () => JSON.stringify({
-    type: 'ping',
-    clientTime: Date.now()
-  }, null, 2),
+  ping: () => JSON.stringify({ type: 'ping', clientTime: Date.now() }, null, 2),
 
   send: () => JSON.stringify({
-    type: 'send',
-    seq: 1,
-    node: 'crate-01',
-    field: 'translation',
-    value: [2.0, 0.25, 0.0]
+    type: 'send', seq: 1, node: 'crate-01', field: 'translation', value: [2.0, 0.25, 0.0]
   }, null, 2),
 
   add: () => JSON.stringify({
-    type: 'add',
-    seq: 1,
-    format: 'gltf',
+    type: 'add', seq: 1, format: 'gltf',
     node: { name: 'new-node', translation: [0.0, 0.0, 0.0], rotation: [0, 0, 0, 1] }
   }, null, 2),
 
-  remove: () => JSON.stringify({
-    type: 'remove',
-    seq: 1,
-    node: 'crate-01'
-  }, null, 2),
+  remove: () => JSON.stringify({ type: 'remove', seq: 1, node: 'crate-01' }, null, 2),
+
+  view: () => JSON.stringify({ type: 'view', position: [0.0, 1.7, 0.0] }, null, 2),
 }
 
 // ---------------------------------------------------------------------------
@@ -419,8 +445,10 @@ const btnReset      = document.getElementById('btnReset')
 const logEl         = document.getElementById('log')
 const btnClear      = document.getElementById('btnClear')
 const chkShowTicks  = document.getElementById('chkShowTicks')
+const chkShowViews  = document.getElementById('chkShowViews')
 const viewportEl    = document.getElementById('viewport')
 const overlayEl     = document.getElementById('viewport-overlay')
+const cameraModeEl  = document.getElementById('cameraMode')
 
 // ---------------------------------------------------------------------------
 // Three.js setup
@@ -441,7 +469,6 @@ const controls = new OrbitControls(camera, renderer.domElement)
 controls.target.set(0, 0.5, 0)
 controls.update()
 
-// Lights
 const ambient = new THREE.AmbientLight(0xffffff, 0.4)
 threeScene.add(ambient)
 
@@ -450,11 +477,9 @@ dirLight.position.set(5, 10, 5)
 dirLight.castShadow = true
 threeScene.add(dirLight)
 
-// Grid helper for pre-load context
 const grid = new THREE.GridHelper(10, 10, 0x444444, 0x333333)
 threeScene.add(grid)
 
-// Resize handling
 const resizeObserver = new ResizeObserver(entries => {
   const { width, height } = entries[0].contentRect
   if (width === 0 || height === 0) return
@@ -464,16 +489,190 @@ const resizeObserver = new ResizeObserver(entries => {
 })
 resizeObserver.observe(viewportEl)
 
-// Animate
+// ---------------------------------------------------------------------------
+// Camera mode switching
+// ---------------------------------------------------------------------------
+function switchToOrbit() {
+  cameraMode = 'orbit'
+  controls.enabled = true
+}
+
+function switchToWalk() {
+  cameraMode = 'walk'
+  controls.enabled = false
+  camera.position.set(0, WALK_EYE_Y, 3)
+  walkYaw   = 0
+  walkPitch = 0
+  lastBroadcastPos = null
+  applyWalkLook()
+}
+
+function applyWalkLook() {
+  const target = new THREE.Vector3(
+    camera.position.x - Math.sin(walkYaw) * Math.cos(walkPitch),
+    camera.position.y + Math.sin(walkPitch),
+    camera.position.z - Math.cos(walkYaw) * Math.cos(walkPitch)
+  )
+  camera.lookAt(target)
+}
+
+cameraModeEl.addEventListener('change', () => {
+  if (cameraModeEl.value === 'walk') switchToWalk()
+  else switchToOrbit()
+})
+
+// ---------------------------------------------------------------------------
+// Walk keyboard input (ignore when textarea/input focused)
+// ---------------------------------------------------------------------------
+document.addEventListener('keydown', (e) => {
+  const tag = document.activeElement?.tagName
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return
+  keysDown.add(e.key)
+})
+document.addEventListener('keyup', (e) => {
+  keysDown.delete(e.key)
+})
+
+// ---------------------------------------------------------------------------
+// Walk mouse look (drag in viewport)
+// ---------------------------------------------------------------------------
+viewportEl.addEventListener('mousedown', (e) => {
+  if (cameraMode !== 'walk') return
+  walkMouseDown = true
+  walkLastX = e.clientX
+  walkLastY = e.clientY
+})
+
+window.addEventListener('mousemove', (e) => {
+  if (!walkMouseDown || cameraMode !== 'walk') return
+  const dx = e.clientX - walkLastX
+  const dy = e.clientY - walkLastY
+  walkLastX = e.clientX
+  walkLastY = e.clientY
+  walkYaw   -= dx * LOOK_SENSITIVITY
+  walkPitch -= dy * LOOK_SENSITIVITY
+  const MAX_PITCH = 80 * Math.PI / 180
+  walkPitch = Math.max(-MAX_PITCH, Math.min(MAX_PITCH, walkPitch))
+})
+
+window.addEventListener('mouseup', () => { walkMouseDown = false })
+
+// ---------------------------------------------------------------------------
+// Walk movement (per frame)
+// ---------------------------------------------------------------------------
+function updateWalk(dt) {
+  const sinYaw = Math.sin(walkYaw)
+  const cosYaw = Math.cos(walkYaw)
+  // Forward (-Z rotated by yaw) and right (+X rotated by yaw)
+  const fwdX = -sinYaw, fwdZ = -cosYaw
+  const rgtX =  cosYaw, rgtZ = -sinYaw
+
+  let dx = 0, dz = 0
+  if (keysDown.has('w') || keysDown.has('W')) { dx += fwdX; dz += fwdZ }
+  if (keysDown.has('s') || keysDown.has('S')) { dx -= fwdX; dz -= fwdZ }
+  if (keysDown.has('a') || keysDown.has('A')) { dx -= rgtX; dz -= rgtZ }
+  if (keysDown.has('d') || keysDown.has('D')) { dx += rgtX; dz += rgtZ }
+
+  const len = Math.sqrt(dx * dx + dz * dz)
+  if (len > 0) {
+    camera.position.x += (dx / len) * WALK_SPEED * dt
+    camera.position.z += (dz / len) * WALK_SPEED * dt
+    camera.position.y = WALK_EYE_Y
+  }
+
+  applyWalkLook()
+}
+
+// ---------------------------------------------------------------------------
+// View broadcasting (Walk mode only)
+// ---------------------------------------------------------------------------
+function positionChanged(a, b) {
+  if (!a || !b) return true
+  return Math.abs(a[0] - b[0]) > VIEW_THRESHOLD
+      || Math.abs(a[1] - b[1]) > VIEW_THRESHOLD
+      || Math.abs(a[2] - b[2]) > VIEW_THRESHOLD
+}
+
+function broadcastView() {
+  if (!wsConnected || !myServerId) return
+  const pos = camera.position.toArray()
+  if (!positionChanged(pos, lastBroadcastPos)) return
+  sendMessage({ type: 'view', position: pos })
+  lastBroadcastPos = [...pos]
+}
+
+// ---------------------------------------------------------------------------
+// Avatar rendering (pure Three.js, not in glTF Document)
+// ---------------------------------------------------------------------------
+function colorFromId(id) {
+  let hash = 0
+  for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) & 0xffffffff
+  const hue = (hash & 0xffff) / 0xffff
+  return new THREE.Color().setHSL(hue, 0.7, 0.5)
+}
+
+function createAvatar(id) {
+  const color = colorFromId(id)
+  const mat = new THREE.MeshLambertMaterial({ color })
+  const group = new THREE.Group()
+
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 1.0), mat)
+  body.position.set(0, 1.2, 0)
+  group.add(body)
+
+  const capBottom = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 8), mat)
+  capBottom.position.set(0, 0.7, 0)
+  group.add(capBottom)
+
+  const capTop = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 8), mat)
+  capTop.position.set(0, 1.7, 0)
+  group.add(capTop)
+
+  // ConeGeometry tip is +Y by default; rotate X by PI/2 so tip points in -Z
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.3, 8), mat)
+  nose.position.set(0, 1.5, -0.3)
+  nose.rotation.x = Math.PI / 2
+  group.add(nose)
+
+  return group
+}
+
+function disposeAvatar(group) {
+  threeScene.remove(group)
+  group.traverse(obj => {
+    if (obj.geometry) obj.geometry.dispose()
+    if (obj.material) obj.material.dispose()
+  })
+}
+
+function clearAllAvatars() {
+  for (const group of avatars.values()) disposeAvatar(group)
+  avatars.clear()
+}
+
+// ---------------------------------------------------------------------------
+// Animate loop
+// ---------------------------------------------------------------------------
 function animate() {
   requestAnimationFrame(animate)
-  controls.update()
+
+  const now = performance.now()
+  const dt = Math.min((now - lastFrameTime) / 1000, 0.1)
+  lastFrameTime = now
+
+  if (cameraMode === 'orbit') {
+    controls.update()
+  } else {
+    updateWalk(dt)
+    broadcastView()
+  }
+
   renderer.render(threeScene, camera)
 }
 animate()
 
 // ---------------------------------------------------------------------------
-// glTF scene loading (called after server hello)
+// glTF scene loading
 // ---------------------------------------------------------------------------
 async function loadScene() {
   overlayEl.textContent = 'Loading scene…'
@@ -492,7 +691,6 @@ async function loadScene() {
   }
 }
 
-// Graceful static load: try loading without server connection
 async function tryStaticLoad() {
   try {
     const io = new WebIO().registerExtensions(KHRONOS_EXTENSIONS)
@@ -559,16 +757,11 @@ function connect() {
   ws = new WebSocket(url)
 
   ws.addEventListener('open', () => {
+    wsConnected = true
     btnConnect.disabled = true
     btnDisconnect.disabled = false
     btnSend.disabled = false
-    // Auto-send hello
-    const helloMsg = {
-      type: 'hello',
-      id: clientId,
-      capabilities: { tick: { interval: 1000 } }
-    }
-    sendMessage(helloMsg)
+    sendMessage({ type: 'hello', id: clientId, capabilities: { tick: { interval: 1000 } } })
   })
 
   ws.addEventListener('message', ev => {
@@ -582,12 +775,17 @@ function connect() {
       case 'remove': applyRemove(msg);    break
       case 'join':   onJoin(msg);         break
       case 'leave':  onLeave(msg);        break
+      case 'view':   onView(msg);         break
       case 'tick':   /* filtered in log */ break
       case 'error':  onError(msg);        break
     }
   })
 
   ws.addEventListener('close', () => {
+    wsConnected = false
+    myServerId = null
+    lastBroadcastPos = null
+    clearAllAvatars()
     setStatus('', 'Disconnected')
     btnConnect.disabled = false
     btnDisconnect.disabled = true
@@ -611,16 +809,34 @@ function sendMessage(msgObj) {
 }
 
 async function onServerHello(msg) {
+  myServerId = msg.id
   setStatus('connected', 'Connected  id:' + msg.id)
   if (!gltfDoc) await loadScene()
 }
 
 function onJoin(msg) {
-  logInfo('peer joined: ' + (msg.id ?? msg.seq))
+  if (msg.id === myServerId) return
+  const group = createAvatar(msg.id)
+  if (msg.position) group.position.set(...msg.position)
+  threeScene.add(group)
+  avatars.set(msg.id, group)
+  logInfo('peer joined: ' + msg.id)
 }
 
 function onLeave(msg) {
-  logInfo('peer left: ' + (msg.id ?? msg.seq))
+  const group = avatars.get(msg.id)
+  if (group) {
+    disposeAvatar(group)
+    avatars.delete(msg.id)
+  }
+  logInfo('peer left: ' + msg.id)
+}
+
+function onView(msg) {
+  if (msg.id === myServerId) return
+  const group = avatars.get(msg.id)
+  if (!group) return
+  group.position.set(...msg.position)
 }
 
 function onError(msg) {
@@ -651,7 +867,6 @@ function validateEditor() {
   }
 }
 
-// Init editor
 editor.value = TEMPLATES[typeSelect.value]()
 validateEditor()
 
@@ -680,6 +895,7 @@ function logMessage(dir, msg, isError = false) {
   entry.row = row
 
   if (msg.type === 'tick' && !chkShowTicks.checked) row.style.display = 'none'
+  if (msg.type === 'view' && !chkShowViews.checked) row.style.display = 'none'
 
   const summary = document.createElement('div')
   summary.className = 'log-summary'
@@ -742,6 +958,7 @@ function formatDetail(msg) {
     case 'hello':  return `  id:${msg.id ?? ''}`
     case 'error':  return `  ${msg.code}: ${msg.message}`
     case 'tick':   return `  seq:${msg.seq}`
+    case 'view':   return `  id:${msg.id ?? ''}  [${msg.position?.map(v => v.toFixed(2)).join(', ')}]`
     default:       return ''
   }
 }
@@ -750,6 +967,13 @@ chkShowTicks.addEventListener('change', () => {
   const show = chkShowTicks.checked
   for (const e of logEntries) {
     if (e.row && e.msg?.type === 'tick') e.row.style.display = show ? '' : 'none'
+  }
+})
+
+chkShowViews.addEventListener('change', () => {
+  const show = chkShowViews.checked
+  for (const e of logEntries) {
+    if (e.row && e.msg?.type === 'view') e.row.style.display = show ? '' : 'none'
   }
 })
 
@@ -764,7 +988,6 @@ btnClear.addEventListener('click', () => {
 btnConnect.addEventListener('click', connect)
 btnDisconnect.addEventListener('click', disconnect)
 
-// Attempt static scene load on page load (offline / browser-first)
 tryStaticLoad()
 </script>
 </body>

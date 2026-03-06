@@ -245,6 +245,7 @@
         <option>send</option>
         <option>add</option>
         <option>remove</option>
+        <option>view</option>
       </select>
     </div>
 
@@ -297,6 +298,7 @@
     set:    () => JSON.stringify({ type: 'set', seq: 1, node: 'crate-01', field: 'translation', value: [1.0, 0.0, 0.0], serverTime: Date.now() }, null, 2),
     add:    () => JSON.stringify({ type: 'add', seq: 1, format: 'gltf', node: { name: 'new-node', translation: [0.0, 0.0, 0.0], rotation: [0, 0, 0, 1] } }, null, 2),
     remove: () => JSON.stringify({ type: 'remove', seq: 1, node: 'crate-01' }, null, 2),
+    view:   () => JSON.stringify({ type: 'view', position: [0.0, 1.7, 0.0] }, null, 2),
     join:   () => JSON.stringify({ type: 'join', seq: 1 }, null, 2),
     leave:  () => JSON.stringify({ type: 'leave', seq: 1 }, null, 2),
     pong:   () => JSON.stringify({ type: 'pong', clientTime: Date.now(), serverTime: Date.now() }, null, 2),

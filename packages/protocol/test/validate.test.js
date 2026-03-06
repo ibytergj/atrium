@@ -284,6 +284,53 @@ describe('leave', () => {
   })
 })
 
+// ─── view ─────────────────────────────────────────────────────────
+
+describe('view (client)', () => {
+  it('validates a minimal client view — position only', () => {
+    const { valid } = validate('client', { type: 'view', position: [1, 0, 0] })
+    assert.equal(valid, true)
+  })
+
+  it('validates a client view with all optional fields', () => {
+    const { valid } = validate('client', {
+      type: 'view',
+      position: [1, 0, 0],
+      look: [0, 0, -1],
+      move: [1, 0, 0],
+      velocity: 4.0
+    })
+    assert.equal(valid, true)
+  })
+
+  it('rejects client view missing position', () => {
+    const { valid } = validate('client', { type: 'view' })
+    assert.equal(valid, false)
+  })
+
+  it('rejects client view with position wrong length', () => {
+    const { valid } = validate('client', { type: 'view', position: [1, 0] })
+    assert.equal(valid, false)
+  })
+})
+
+describe('view (server)', () => {
+  it('validates a server view', () => {
+    const { valid } = validate('server', { type: 'view', id: 'abc', position: [1, 0, 0] })
+    assert.equal(valid, true)
+  })
+
+  it('rejects server view missing id', () => {
+    const { valid } = validate('server', { type: 'view', position: [1, 0, 0] })
+    assert.equal(valid, false)
+  })
+
+  it('rejects server view missing position', () => {
+    const { valid } = validate('server', { type: 'view', id: 'abc' })
+    assert.equal(valid, false)
+  })
+})
+
 // ─── unknown message ──────────────────────────────────────────────
 
 describe('unknown message type', () => {

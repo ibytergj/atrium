@@ -5,8 +5,15 @@ export function createPresence() {
   const clients = new Map()
 
   function add(id) {
-    const entry = { id, joinedAt: Date.now() }
+    const entry = { id, joinedAt: Date.now(), position: [0, 0, 0] }
     clients.set(id, entry)
+    return entry
+  }
+
+  function setPosition(id, position) {
+    const entry = clients.get(id)
+    if (!entry) return null
+    entry.position = position
     return entry
   }
 
@@ -28,5 +35,5 @@ export function createPresence() {
     return clients.has(id)
   }
 
-  return { add, remove, get, list, has }
+  return { add, remove, get, list, has, setPosition }
 }

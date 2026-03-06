@@ -35,6 +35,15 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
     }
   }
 
+  function broadcastExcept(excludeSession, message) {
+    const raw = JSON.stringify(message)
+    for (const [, s] of sessions) {
+      if (s !== excludeSession && s.ws.readyState === 1 /* OPEN */) {
+        s.ws.send(raw)
+      }
+    }
+  }
+
   wss.on('connection', (ws) => {
     let session = null
 
@@ -92,8 +101,8 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
 
           session.tickStop = createTickLoop(session, negotiated).stop
 
-          // Step 1: notify existing clients of the newcomer
-          const joinNewcomer = { type: 'join', seq: nextSeq(), id: session.id }
+          // Step 1: notify existing clients of the newcomer (default position)
+          const joinNewcomer = { type: 'join', seq: nextSeq(), id: session.id, position: [0, 0, 0] }
           const { valid: jv1 } = validate('server', joinNewcomer)
           if (jv1) {
             const raw = JSON.stringify(joinNewcomer)
@@ -106,16 +115,14 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
             console.error('join validation failed for newcomer broadcast')
           }
 
-          // Step 2: bootstrap the newcomer with each already-connected client
-          for (const [sid] of sessions) {
-            if (sid !== session.id && presence.has(sid)) {
-              const joinExisting = { type: 'join', seq: nextSeq(), id: sid }
-              const { valid: jv2 } = validate('server', joinExisting)
-              if (jv2) {
-                session.ws.send(JSON.stringify(joinExisting))
-              } else {
-                console.error('join validation failed for bootstrap')
-              }
+          // Step 2: bootstrap the newcomer with each existing client's current position
+          for (const entry of presence.list()) {
+            const joinExisting = { type: 'join', seq: nextSeq(), id: entry.id, position: entry.position }
+            const { valid: jv2 } = validate('server', joinExisting)
+            if (jv2) {
+              session.ws.send(JSON.stringify(joinExisting))
+            } else {
+              console.error('join validation failed for bootstrap')
             }
           }
 
@@ -171,6 +178,25 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
             ...(msg.parent != null ? { parent: msg.parent } : {}),
             node: msg.node,
           })
+          break
+        }
+
+        case 'view': {
+          presence.setPosition(session.id, msg.position)
+          const outbound = {
+            type: 'view',
+            id: session.id,
+            position: msg.position,
+            ...(msg.look               && { look: msg.look }),
+            ...(msg.move               && { move: msg.move }),
+            ...(msg.velocity !== undefined && { velocity: msg.velocity }),
+          }
+          const { valid: vv } = validate('server', outbound)
+          if (vv) {
+            broadcastExcept(session, outbound)
+          } else {
+            console.error('view validation failed')
+          }
           break
         }
 

@@ -52,6 +52,23 @@ function waitForClose(ws) {
   })
 }
 
+function makeMessageQueue(ws) {
+  const queue = []
+  ws.on('message', (raw) => {
+    try { queue.push(JSON.parse(raw)) } catch {}
+  })
+  async function waitForType(type, timeoutMs = 500) {
+    const deadline = Date.now() + timeoutMs
+    while (true) {
+      const idx = queue.findIndex(m => m.type === type)
+      if (idx >= 0) return queue.splice(idx, 1)[0]
+      if (Date.now() >= deadline) return null
+      await new Promise(r => setTimeout(r, 10))
+    }
+  }
+  return { waitForType }
+}
+
 async function handshake(ws, opts = {}) {
   await waitForOpen(ws)
   ws.send(JSON.stringify({
@@ -232,15 +249,22 @@ test('add message broadcasts add to all clients', async () => {
 
   try {
     const ws1 = new WebSocket('ws://localhost:3005')
-    await handshake(ws1)
+    const q1 = makeMessageQueue(ws1)
+    await handshake(ws1, {})
+    await q1.waitForType('hello', 1000)
 
     const ws2 = new WebSocket('ws://localhost:3005')
-    await handshake(ws2)
+    const q2 = makeMessageQueue(ws2)
+    await waitForOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'hello', id: 'add-test-client-2', capabilities: { tick: { interval: 5000 } } }))
+    await q2.waitForType('hello', 1000)
+    // drain join for ws1
+    await q2.waitForType('join', 300)
 
-    const ws2Receive = waitForMessage(ws2)
     ws1.send(JSON.stringify({ type: 'add', seq: 1, node: { name: 'new-node-01', translation: [0, 2, 0] } }))
 
-    const msg = await ws2Receive
+    const msg = await q2.waitForType('add', 1000)
+    assert.ok(msg !== null, 'ws2 should receive add message')
     assert.equal(msg.type, 'add')
     assert.equal(msg.node.name, 'new-node-01')
 
@@ -258,15 +282,23 @@ test('remove message broadcasts remove to all clients', async () => {
 
   try {
     const ws1 = new WebSocket('ws://localhost:3006')
-    await handshake(ws1)
+    const q1 = makeMessageQueue(ws1)
+    await waitForOpen(ws1)
+    ws1.send(JSON.stringify({ type: 'hello', id: 'remove-test-client-1', capabilities: { tick: { interval: 5000 } } }))
+    await q1.waitForType('hello', 1000)
 
     const ws2 = new WebSocket('ws://localhost:3006')
-    await handshake(ws2)
+    const q2 = makeMessageQueue(ws2)
+    await waitForOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'hello', id: 'remove-test-client-2', capabilities: { tick: { interval: 5000 } } }))
+    await q2.waitForType('hello', 1000)
+    // drain join for ws1
+    await q2.waitForType('join', 300)
 
-    const ws2Receive = waitForMessage(ws2)
     ws1.send(JSON.stringify({ type: 'remove', seq: 1, node: 'crate-01' }))
 
-    const msg = await ws2Receive
+    const msg = await q2.waitForType('remove', 1000)
+    assert.ok(msg !== null, 'ws2 should receive remove message')
     assert.equal(msg.type, 'remove')
     assert.equal(msg.node, 'crate-01')
 

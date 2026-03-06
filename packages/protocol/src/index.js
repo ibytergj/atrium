@@ -15,6 +15,8 @@ import add from './schemas/add.json' with { type: 'json' }
 import remove from './schemas/remove.json' with { type: 'json' }
 import join from './schemas/join.json' with { type: 'json' }
 import leave from './schemas/leave.json' with { type: 'json' }
+import viewClient from './schemas/view-client.json' with { type: 'json' }
+import viewServer from './schemas/view-server.json' with { type: 'json' }
 
 const ajv = new Ajv({ strict: false })
 
@@ -31,6 +33,8 @@ const validators = {
   'remove':       ajv.compile(remove),
   'join':         ajv.compile(join),
   'leave':        ajv.compile(leave),
+  'view:client':  ajv.compile(viewClient),
+  'view:server':  ajv.compile(viewServer),
 }
 
 /**
@@ -44,8 +48,8 @@ export function validate(direction, message) {
     return { valid: false, errors: [{ message: 'Message must have a type field' }] }
   }
 
-  const key = message.type === 'hello'
-    ? `hello:${direction}`
+  const key = (message.type === 'hello' || message.type === 'view')
+    ? `${message.type}:${direction}`
     : message.type
 
   const validator = validators[key]
@@ -60,7 +64,7 @@ export function validate(direction, message) {
 
 export const messageTypes = [
   'hello', 'ping', 'pong', 'tick', 'error',
-  'send', 'set', 'add', 'remove', 'join', 'leave'
+  'send', 'set', 'add', 'remove', 'join', 'leave', 'view'
 ]
 
 export { validators }

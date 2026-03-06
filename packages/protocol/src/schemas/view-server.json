@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "view (server)",
+  "type": "object",
+  "required": ["type", "id", "position"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "view" },
+    "id": { "type": "string", "minLength": 1 },
+    "position": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "look": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "move": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "velocity": {
+      "type": "number",
+      "minimum": 0
+    }
+  }
+}
