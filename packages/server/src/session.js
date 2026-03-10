@@ -21,6 +21,20 @@ function sendError(ws, seq, code, message) {
   ws.send(JSON.stringify({ type: 'error', code, message, ...(seq != null ? { seq } : {}) }))
 }
 
+// Compute a quaternion that rotates the glTF default forward [0,0,-1] to `look`.
+function lookToQuaternion(look) {
+  const [lx, ly, lz] = look
+  const dot = -lz  // dot([0,0,-1], look) = -lz
+  if (dot < -0.9999) return [0, 1, 0, 0]   // 180° around Y
+  // cross([0,0,-1], look)
+  const cx =  ly
+  const cy = -lx
+  const cz =  0
+  const qw = 1 + dot
+  const len = Math.sqrt(cx*cx + cy*cy + cz*cz + qw*qw)
+  return [cx/len, cy/len, cz/len, qw/len]
+}
+
 export function createSessionServer({ port = 3000, maxUsers = 100, world = null } = {}) {
   const sessions = new Map()
   const presence = createPresence()
@@ -47,7 +61,7 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
   wss.on('connection', (ws) => {
     let session = null
 
-    ws.on('message', (raw) => {
+    ws.on('message', async (raw) => {
       let msg
       try {
         msg = JSON.parse(raw)
@@ -79,13 +93,15 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
           const clientInterval = msg.capabilities?.tick?.interval ?? DEFAULT_TICK_INTERVAL
           const negotiated = Math.max(clientInterval, MIN_TICK_INTERVAL)
 
+          // Use the client-provided UUID as session ID so avatar node name = session ID
           session = {
             ws,
-            id: randomUUID(),
+            id: msg.id ?? randomUUID(),
             capabilities: msg.capabilities ?? {},
             seq: nextSeq(),
             alive: true,
             tickStop: null,
+            avatarNodeName: null,
           }
           sessions.set(session.id, session)
 
@@ -101,14 +117,26 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
 
           session.tickStop = createTickLoop(session, negotiated).stop
 
+          // Send full SOM dump to the joining client
+          if (world) {
+            try {
+              const gltf = await world.serialize()
+              if (session && session.ws.readyState === 1 /* OPEN */) {
+                session.ws.send(JSON.stringify({ type: 'som-dump', seq: nextSeq(), gltf }))
+              }
+            } catch (err) {
+              console.error('som-dump serialize failed:', err)
+            }
+          }
+
           // Step 1: notify existing clients of the newcomer (default position)
           const joinNewcomer = { type: 'join', seq: nextSeq(), id: session.id, position: [0, 0, 0] }
           const { valid: jv1 } = validate('server', joinNewcomer)
           if (jv1) {
-            const raw = JSON.stringify(joinNewcomer)
+            const rawJoin = JSON.stringify(joinNewcomer)
             for (const [sid, s] of sessions) {
               if (sid !== session.id && s.ws.readyState === 1 /* OPEN */) {
-                s.ws.send(raw)
+                s.ws.send(rawJoin)
               }
             }
           } else {
@@ -171,7 +199,9 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
             sendError(ws, msg.seq, result.code, `${result.code}: ${msg.parent}`)
             break
           }
-          broadcast({
+          // Track avatar node name for this session
+          if (msg.id) session.avatarNodeName = msg.node.name
+          broadcastExcept(session, {
             type: 'add',
             seq: nextSeq(),
             format: msg.format ?? 'gltf',
@@ -183,6 +213,16 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
 
         case 'view': {
           presence.setPosition(session.id, msg.position)
+
+          // Update avatar SOM node with latest position and orientation
+          if (world && session.avatarNodeName) {
+            const avatarNode = world.getNode(session.avatarNodeName)
+            if (avatarNode) {
+              avatarNode.translation = msg.position
+              if (msg.look) avatarNode.rotation = lookToQuaternion(msg.look)
+            }
+          }
+
           const outbound = {
             type: 'view',
             id: session.id,
@@ -190,6 +230,7 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
             ...(msg.look               && { look: msg.look }),
             ...(msg.move               && { move: msg.move }),
             ...(msg.velocity !== undefined && { velocity: msg.velocity }),
+            ...(msg.up                 && { up: msg.up }),
           }
           const { valid: vv } = validate('server', outbound)
           if (vv) {
@@ -210,7 +251,7 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
             sendError(ws, msg.seq, result.code, `${result.code}: ${msg.node}`)
             break
           }
-          broadcast({
+          broadcastExcept(session, {
             type: 'remove',
             seq: nextSeq(),
             node: msg.node,
@@ -226,6 +267,7 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
     ws.on('close', () => {
       if (session) {
         const departedId = session.id
+        const avatarNodeName = session.avatarNodeName
         session.tickStop?.()
         sessions.delete(departedId)
         const removed = presence.remove(departedId)
@@ -238,6 +280,12 @@ export function createSessionServer({ port = 3000, maxUsers = 100, world = null 
             broadcast(leaveMsg)
           } else {
             console.error('leave validation failed')
+          }
+
+          // Remove avatar node from SOM and notify all clients
+          if (world && avatarNodeName) {
+            world.removeNode(avatarNodeName)
+            broadcast({ type: 'remove', seq: nextSeq(), id: departedId })
           }
         }
       }

@@ -30,6 +30,13 @@
       "type": "number",
       "minimum": 0,
       "description": "Scalar speed in units/second"
+    },
+    "up": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3,
+      "description": "Up unit vector. Defaults to [0,1,0] if omitted. Only sent when non-default (FLY mode, vehicles)."
     }
   }
 }

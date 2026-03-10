@@ -7,6 +7,7 @@
   "properties": {
     "type": { "const": "add" },
     "seq": { "type": "integer", "minimum": 0 },
+    "id": { "type": "string", "description": "Session UUID — identifies the sender when adding an avatar node" },
     "format": { "type": "string", "default": "gltf" },
     "parent": { "type": ["string", "null"] },
     "node": {
@@ -33,7 +34,25 @@
           "maxItems": 3
         },
         "extras": { "type": "object" },
-        "extensions": { "type": "object" }
+        "extensions": { "type": "object" },
+        "mesh": {
+          "type": "object",
+          "description": "glTF mesh descriptor with primitives including geometry and material",
+          "properties": {
+            "name": { "type": "string" },
+            "primitives": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "attributes": { "type": "object" },
+                  "indices": {},
+                  "material": { "type": "object" }
+                }
+              }
+            }
+          }
+        }
       },
       "additionalProperties": false
     }

@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "som-dump (server)",
+  "description": "Full serialized glTF scene sent to a client on connect. Contains complete world state including all current avatar nodes.",
+  "type": "object",
+  "required": ["type", "seq", "gltf"],
+  "additionalProperties": false,
+  "properties": {
+    "type": { "const": "som-dump" },
+    "seq": { "type": "integer", "minimum": 0 },
+    "gltf": {
+      "type": "object",
+      "description": "glTF 2.0 JSON payload (asset + scenes + nodes + meshes + materials + buffers)"
+    }
+  }
+}

@@ -28,7 +28,7 @@ export async function createWorld(gltfPath) {
   }
 
   function addNode(nodeDescriptor, parentName) {
-    const node = som.createNode(nodeDescriptor)
+    const node = som.ingestNode(nodeDescriptor)
     if (parentName) {
       const parent = som.getNodeByName(parentName)
       if (!parent) return { ok: false, code: 'NODE_NOT_FOUND' }
@@ -37,6 +37,19 @@ export async function createWorld(gltfPath) {
       som.scene.addChild(node)
     }
     return { ok: true, node }
+  }
+
+  async function serialize() {
+    const { json, resources } = await io.writeJSON(som._document)
+    for (const buf of json.buffers ?? []) {
+      if (buf.uri && !buf.uri.startsWith('data:')) {
+        const data = resources[buf.uri]
+        if (data) {
+          buf.uri = 'data:application/octet-stream;base64,' + Buffer.from(data).toString('base64')
+        }
+      }
+    }
+    return json
   }
 
   function removeNode(nodeName) {
@@ -56,5 +69,5 @@ export async function createWorld(gltfPath) {
     return som.nodes.map(n => n.name)
   }
 
-  return { meta, som, getNode, setField, addNode, removeNode, getNodeTranslation, listNodeNames }
+  return { meta, som, getNode, setField, addNode, removeNode, getNodeTranslation, listNodeNames, serialize }
 }

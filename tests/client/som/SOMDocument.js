@@ -106,6 +106,62 @@ export class SOMDocument {
     return new SOMAnimation(anim)
   }
 
+  // Ingest a glTF node descriptor that may include mesh geometry data.
+  // Handles primitives with POSITION/NORMAL arrays and indices.
+  ingestNode(descriptor = {}) {
+    const node = this._document.createNode(descriptor.name ?? '')
+    if (descriptor.translation) node.setTranslation(descriptor.translation)
+    if (descriptor.rotation)    node.setRotation(descriptor.rotation)
+    if (descriptor.scale)       node.setScale(descriptor.scale)
+    if (descriptor.extras)      node.setExtras(descriptor.extras)
+
+    if (descriptor.mesh) {
+      const mesh = this._document.createMesh(descriptor.mesh.name ?? '')
+      for (const primDesc of descriptor.mesh.primitives ?? []) {
+        const prim  = this._document.createPrimitive()
+        const buf   = this._document.createBuffer()
+
+        if (Array.isArray(primDesc.attributes?.POSITION)) {
+          const acc = this._document.createAccessor()
+            .setType('VEC3')
+            .setArray(new Float32Array(primDesc.attributes.POSITION))
+            .setBuffer(buf)
+          prim.setAttribute('POSITION', acc)
+        }
+
+        if (Array.isArray(primDesc.attributes?.NORMAL)) {
+          const acc = this._document.createAccessor()
+            .setType('VEC3')
+            .setArray(new Float32Array(primDesc.attributes.NORMAL))
+            .setBuffer(buf)
+          prim.setAttribute('NORMAL', acc)
+        }
+
+        if (Array.isArray(primDesc.indices)) {
+          const acc = this._document.createAccessor()
+            .setType('SCALAR')
+            .setArray(new Uint16Array(primDesc.indices))
+            .setBuffer(buf)
+          prim.setIndices(acc)
+        }
+
+        if (primDesc.material) {
+          const mat = this._document.createMaterial()
+          const pbr = primDesc.material.pbrMetallicRoughness
+          if (pbr?.baseColorFactor)             mat.setBaseColorFactor(pbr.baseColorFactor)
+          if (pbr?.metallicFactor  !== undefined) mat.setMetallicFactor(pbr.metallicFactor)
+          if (pbr?.roughnessFactor !== undefined) mat.setRoughnessFactor(pbr.roughnessFactor)
+          prim.setMaterial(mat)
+        }
+
+        mesh.addPrimitive(prim)
+      }
+      node.setMesh(mesh)
+    }
+
+    return new SOMNode(node)
+  }
+
   // Path resolution
   getPath(somNode, path) {
     const segments = parsePath(path)
