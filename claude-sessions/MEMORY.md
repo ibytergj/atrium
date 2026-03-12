@@ -7,7 +7,7 @@
 - SPDX license header in every .js file
 - Package manager: pnpm workspaces
 
-## Test Counts (Session 9)
+## Test Counts (Session 9–10, unchanged)
 | Package | Tests |
 |---------|-------|
 | `@atrium/protocol` | 41 |
@@ -40,15 +40,25 @@ Run with: `node --test packages/protocol/test/*.test.js packages/som/test/*.test
 2. Server `broadcast` `remove { id: departedId }` (avatar removal)
 3. Server `broadcast` `leave { id: departedId }` (presence, existing behavior)
 
-### Avatar node
-- `node.name = sessionId` (UUID)
-- `node.extras.displayName = 'User-XXXX'`
+### Avatar node (Session 10+)
+- `shortId = sessionId.slice(0, 4)` — e.g. `"3f2a"` — used as `node.name`
+- `displayName = 'User-3f2a'`; `avatarNodeName = shortId`
+- `node.extras.displayName = displayName`
 - Geometry: CapsuleGeometry(0.3, 0.8, 4, 8), blue material
 - Server tracks: `session.avatarNodeName = msg.node.name` on `add`
+- Client also adds avatar to its own local SOM on `sendAvatarAdd()`
+- `console.assert(som.getNodeByName(avatarNodeName) !== null, ...)` after add
 
 ### SOM node lookup
-- `som.getNodeByName(name)` — looks up by node.name (= sessionId for avatars)
+- `som.getNodeByName(name)` — looks up by node.name (= shortId for avatars)
 - `som.ingestNode(descriptor)` — handles mesh geometry in node descriptors
+- After Session 10: sync SOM source with `cp packages/som/src/SOMDocument.js tests/client/som/SOMDocument.js`
+
+### Client tree view (Session 10+)
+- SOM tree panel below message log in right panel, collapsed by default
+- Auto-refreshes on `som-dump`, `add`, `remove`
+- Clicking a node populates Quick Set node input + highlights row
+- Quick Set panel: node/field/value inputs → sends `send` message
 
 ## Key Files
 - `packages/protocol/src/index.js` — Ajv validator, direction-aware for hello/view

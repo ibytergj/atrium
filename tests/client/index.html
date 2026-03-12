@@ -129,9 +129,7 @@
     display: flex;
     flex-direction: column;
     gap: 8px;
-    flex: 1;
-    overflow: hidden;
-    min-height: 0;
+    flex-shrink: 0;
   }
 
   .form-row {
@@ -153,7 +151,7 @@
   select:focus { outline: none; border-color: #a78bfa; }
 
   #editor {
-    flex: 1;
+    height: 80px;
     background: #1a1a1a;
     border: 1px solid #333;
     border-radius: 4px;
@@ -204,7 +202,7 @@
 
   /* Log panel */
   .log-panel {
-    height: 200px;
+    height: 180px;
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
@@ -282,6 +280,111 @@
   }
   .log-entry.expanded .log-body { display: block; }
 
+  /* ── SOM tree panel ─────────────────────────────── */
+  .tree-panel {
+    border-top: 1px solid #333;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .tree-panel-header {
+    background: #1e1e1e;
+    border-bottom: 1px solid #2a2a2a;
+    padding: 5px 10px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: #64748b;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+  }
+  .tree-panel-header:hover { background: #222; }
+  .tree-toggle { font-size: 11px; color: #475569; }
+
+  .tree-body {
+    max-height: 160px;
+    overflow-y: auto;
+    background: #191919;
+    display: none;
+  }
+  .tree-body.open { display: block; }
+
+  .tree-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 11px;
+    border-bottom: 1px solid #1f1f1f;
+    user-select: none;
+  }
+  .tree-row:hover { background: #222; }
+  .tree-row.selected { background: #1e2a3a; }
+  .tree-row.selected .tree-name { color: #60a5fa; }
+
+  .tree-name {
+    flex: 1;
+    color: #94a3b8;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tree-sel {
+    font-size: 10px;
+    padding: 1px 5px;
+    background: #2a2a2a;
+    border-color: #3a3a3a;
+    color: #64748b;
+    flex-shrink: 0;
+  }
+  .tree-sel:hover:not(:disabled) { background: #333; color: #94a3b8; }
+
+  /* ── Quick Set panel ────────────────────────────── */
+  .qs-panel {
+    border-top: 1px solid #333;
+    flex-shrink: 0;
+    background: #242424;
+  }
+
+  .qs-form {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .qs-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .qs-row label {
+    font-size: 10px;
+    color: #475569;
+    width: 32px;
+    flex-shrink: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .qs-input {
+    flex: 1;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 3px;
+    color: #c8d3e8;
+    padding: 3px 7px;
+    font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    font-size: 11px;
+  }
+  .qs-input:focus { outline: none; border-color: #a78bfa; }
+
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: #1a1a1a; }
   ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
@@ -311,7 +414,7 @@
 
 <div class="main">
 
-  <!-- ── Left panel: SOP messaging ── -->
+  <!-- ── Left panel: SOP messaging + SOM tree + quick set ── -->
   <div class="left-panel">
     <div class="panel-header">Send Message</div>
     <div class="send-area">
@@ -333,23 +436,52 @@
         <button id="btnReset">Reset</button>
       </div>
     </div>
+
+    <!-- SOM tree — collapsed by default -->
+    <div class="tree-panel">
+      <div class="tree-panel-header" id="treeToggleHeader">
+        <span>▶ SOM Tree</span>
+        <span class="tree-toggle" id="treeToggleLabel">expand</span>
+      </div>
+      <div class="tree-body" id="treeBody"></div>
+    </div>
+
+    <!-- Quick Set form -->
+    <div class="qs-panel">
+      <div class="panel-header">Quick Set</div>
+      <div class="qs-form">
+        <div class="qs-row">
+          <label>Node</label>
+          <input id="qsNode" class="qs-input" type="text" placeholder="node name" />
+        </div>
+        <div class="qs-row">
+          <label>Field</label>
+          <input id="qsField" class="qs-input" type="text" placeholder="e.g. translation" />
+        </div>
+        <div class="qs-row">
+          <label>Value</label>
+          <input id="qsValue" class="qs-input" type="text" placeholder="JSON value" />
+          <button id="qsSend" class="primary" disabled>Set</button>
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <!-- ── Right panel: viewport + log ── -->
+  <!-- ── Right panel: viewport + message log ── -->
   <div class="right-panel">
     <div id="viewport">
       <div id="viewport-overlay">No scene loaded</div>
     </div>
-
     <div class="log-panel">
       <div class="log-header">
         Message Log
         <div class="log-controls">
           <label>
-            <input type="checkbox" id="chkShowTicks" checked /> Show tick messages
+            <input type="checkbox" id="chkShowTicks" checked /> Show tick
           </label>
           <label>
-            <input type="checkbox" id="chkShowViews" /> Show view messages
+            <input type="checkbox" id="chkShowViews" /> Show view
           </label>
           <button id="btnClear">Clear</button>
         </div>
@@ -384,13 +516,15 @@ const VIEW_THRESHOLD = 0.001                            // min position delta to
 // ---------------------------------------------------------------------------
 // Session identity — generated once on load
 // ---------------------------------------------------------------------------
-const sessionId  = crypto.randomUUID()
-const displayName = `User-${sessionId.slice(0, 4)}`
+const sessionId   = crypto.randomUUID()
+const shortId     = sessionId.slice(0, 4)         // e.g. "3f2a"
+const displayName = `User-${shortId}`             // e.g. "User-3f2a"
+const avatarNodeName = displayName                // SOM node name = display name
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
-let myServerId = null   // echoed back in hello; equals sessionId in new server
+let myServerId = null
 let ws = null
 let wsConnected = false
 let gltfDoc = null
@@ -410,17 +544,17 @@ let walkLastY = 0
 let lastBroadcastPos = null
 let lastFrameTime = performance.now()
 
+// Tree state
+let selectedNodeName = null
+
 // ---------------------------------------------------------------------------
 // Quaternion from look vector (rotate glTF forward [0,0,-1] → look)
 // ---------------------------------------------------------------------------
 function lookToQuaternion(look) {
   const [lx, ly, lz] = look
-  const dot = -lz  // dot([0,0,-1], look)
-  if (dot < -0.9999) return [0, 1, 0, 0]  // 180° around Y
-  const cx =  ly
-  const cy = -lx
-  const cz =  0
-  const qw = 1 + dot
+  const dot = -lz
+  if (dot < -0.9999) return [0, 1, 0, 0]
+  const cx =  ly, cy = -lx, cz = 0, qw = 1 + dot
   const len = Math.sqrt(cx*cx + cy*cy + cz*cz + qw*qw)
   return [cx/len, cy/len, cz/len, qw/len]
 }
@@ -429,7 +563,7 @@ function lookToQuaternion(look) {
 // Message templates
 // ---------------------------------------------------------------------------
 const TEMPLATES = {
-  hello:  () => JSON.stringify({
+  hello: () => JSON.stringify({
     type: 'hello', id: sessionId, capabilities: { tick: { interval: 1000 } }
   }, null, 2),
 
@@ -452,23 +586,30 @@ const TEMPLATES = {
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
-const urlInput      = document.getElementById('urlInput')
-const btnConnect    = document.getElementById('btnConnect')
-const btnDisconnect = document.getElementById('btnDisconnect')
-const statusDot     = document.getElementById('statusDot')
-const statusText    = document.getElementById('statusText')
-const typeSelect    = document.getElementById('typeSelect')
-const editor        = document.getElementById('editor')
-const editorError   = document.getElementById('editorError')
-const btnSend       = document.getElementById('btnSend')
-const btnReset      = document.getElementById('btnReset')
-const logEl         = document.getElementById('log')
-const btnClear      = document.getElementById('btnClear')
-const chkShowTicks  = document.getElementById('chkShowTicks')
-const chkShowViews  = document.getElementById('chkShowViews')
-const viewportEl    = document.getElementById('viewport')
-const overlayEl     = document.getElementById('viewport-overlay')
-const cameraModeEl  = document.getElementById('cameraMode')
+const urlInput         = document.getElementById('urlInput')
+const btnConnect       = document.getElementById('btnConnect')
+const btnDisconnect    = document.getElementById('btnDisconnect')
+const statusDot        = document.getElementById('statusDot')
+const statusText       = document.getElementById('statusText')
+const typeSelect       = document.getElementById('typeSelect')
+const editor           = document.getElementById('editor')
+const editorError      = document.getElementById('editorError')
+const btnSend          = document.getElementById('btnSend')
+const btnReset         = document.getElementById('btnReset')
+const logEl            = document.getElementById('log')
+const btnClear         = document.getElementById('btnClear')
+const chkShowTicks     = document.getElementById('chkShowTicks')
+const chkShowViews     = document.getElementById('chkShowViews')
+const viewportEl       = document.getElementById('viewport')
+const overlayEl        = document.getElementById('viewport-overlay')
+const cameraModeEl     = document.getElementById('cameraMode')
+const treeToggleHeader = document.getElementById('treeToggleHeader')
+const treeToggleLabel  = document.getElementById('treeToggleLabel')
+const treeBody         = document.getElementById('treeBody')
+const qsNode           = document.getElementById('qsNode')
+const qsField          = document.getElementById('qsField')
+const qsValue          = document.getElementById('qsValue')
+const qsSend           = document.getElementById('qsSend')
 
 // ---------------------------------------------------------------------------
 // Three.js setup
@@ -584,7 +725,6 @@ window.addEventListener('mouseup', () => { walkMouseDown = false })
 function updateWalk(dt) {
   const sinYaw = Math.sin(walkYaw)
   const cosYaw = Math.cos(walkYaw)
-  // Forward (-Z rotated by yaw) and right (+X rotated by yaw)
   const fwdX = -sinYaw, fwdZ = -cosYaw
   const rgtX =  cosYaw, rgtZ = -sinYaw
 
@@ -605,7 +745,7 @@ function updateWalk(dt) {
 }
 
 // ---------------------------------------------------------------------------
-// View broadcasting (Walk mode only) — includes look and move unit vectors
+// View broadcasting (Walk mode only)
 // ---------------------------------------------------------------------------
 function positionChanged(a, b) {
   if (!a || !b) return true
@@ -619,15 +759,12 @@ function broadcastView() {
   const pos = camera.position.toArray()
   if (!positionChanged(pos, lastBroadcastPos)) return
 
-  const sinYaw   = Math.sin(walkYaw)
-  const cosYaw   = Math.cos(walkYaw)
-  const cosPitch = Math.cos(walkPitch)
-  const sinPitch = Math.sin(walkPitch)
+  const sinYaw   = Math.sin(walkYaw),  cosYaw   = Math.cos(walkYaw)
+  const cosPitch = Math.cos(walkPitch), sinPitch = Math.sin(walkPitch)
   const look = [-sinYaw * cosPitch, sinPitch, -cosYaw * cosPitch]
 
   const msg = { type: 'view', position: pos, look }
 
-  // Determine move direction (unit vector) and velocity
   const fwdX = -sinYaw, fwdZ = -cosYaw
   const rgtX =  cosYaw, rgtZ = -sinYaw
   let dx = 0, dz = 0
@@ -673,7 +810,6 @@ animate()
 // glTF scene loading
 // ---------------------------------------------------------------------------
 async function loadSceneFromGltfDoc(doc, label) {
-  // Tear down previous scene
   if (sceneGroup) { threeScene.remove(sceneGroup); sceneGroup = null }
   if (docView)    { docView.dispose(); docView = null }
 
@@ -722,7 +858,81 @@ async function init() {
   }
   urlInput.value = serverUrl
   await loadScene(gltfPath)
+  refreshSomTree()
 }
+
+// ---------------------------------------------------------------------------
+// SOM tree view
+// ---------------------------------------------------------------------------
+treeToggleHeader.addEventListener('click', () => {
+  const open = treeBody.classList.toggle('open')
+  treeToggleHeader.querySelector('span:first-child').textContent = open ? '▼ SOM Tree' : '▶ SOM Tree'
+  treeToggleLabel.textContent = open ? 'collapse' : 'expand'
+  if (open) refreshSomTree()
+})
+
+function refreshSomTree() {
+  treeBody.innerHTML = ''
+  if (!som) return
+  renderTreeNodes(som.scene.children, 0)
+}
+
+function renderTreeNodes(nodes, depth) {
+  for (const node of nodes) {
+    const row = document.createElement('div')
+    row.className = 'tree-row' + (node.name === selectedNodeName ? ' selected' : '')
+    row.style.paddingLeft = (8 + depth * 14) + 'px'
+    row.dataset.nodeName = node.name
+
+    const nameEl = document.createElement('span')
+    nameEl.className = 'tree-name'
+    nameEl.textContent = node.name || '(unnamed)'
+
+    const selBtn = document.createElement('button')
+    selBtn.className = 'tree-sel'
+    selBtn.textContent = 'sel'
+    selBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
+      selectTreeNode(node.name)
+    })
+
+    row.append(nameEl, selBtn)
+    row.addEventListener('click', () => selectTreeNode(node.name))
+    treeBody.appendChild(row)
+
+    if (node.children.length > 0) {
+      renderTreeNodes(node.children, depth + 1)
+    }
+  }
+}
+
+function selectTreeNode(name) {
+  selectedNodeName = name
+  // Update highlight
+  for (const row of treeBody.querySelectorAll('.tree-row')) {
+    row.classList.toggle('selected', row.dataset.nodeName === name)
+    const nameEl = row.querySelector('.tree-name')
+    if (nameEl) nameEl.style.color = row.dataset.nodeName === name ? '#60a5fa' : ''
+  }
+  // Populate quick-set node input
+  qsNode.value = name
+}
+
+// ---------------------------------------------------------------------------
+// Quick Set panel
+// ---------------------------------------------------------------------------
+qsSend.addEventListener('click', () => {
+  const node = qsNode.value.trim()
+  const field = qsField.value.trim()
+  const rawValue = qsValue.value.trim()
+  if (!node || !field || !rawValue) return
+  let value
+  try { value = JSON.parse(rawValue) } catch {
+    logInfo('Quick Set: invalid JSON value', true)
+    return
+  }
+  sendMessage({ type: 'send', seq: 1, node, field, value })
+})
 
 // ---------------------------------------------------------------------------
 // SOP → Document mutations (via SOM)
@@ -740,21 +950,21 @@ function applySet(msg) {
 
 function applyAdd(msg) {
   if (!som) return
-  // Ingest node descriptor (may include mesh geometry)
   const node = som.ingestNode(msg.node)
   som.scene.addChild(node)
+  refreshSomTree()
 }
 
 function applyRemove(msg) {
   if (!som) return
-  // msg.id for avatar departure, msg.node for world-object removal
   const nodeName = msg.id ?? msg.node
   const node = som.getNodeByName(nodeName)
   if (node) node.dispose()
+  refreshSomTree()
 }
 
 // ---------------------------------------------------------------------------
-// Avatar add — build capsule and send to server
+// Avatar add — build capsule descriptor and announce to server
 // ---------------------------------------------------------------------------
 function buildAvatarNodeDescriptor() {
   const capsule = new THREE.CapsuleGeometry(0.3, 0.8, 4, 8)
@@ -764,7 +974,7 @@ function buildAvatarNodeDescriptor() {
   capsule.dispose()
 
   return {
-    name: sessionId,
+    name: avatarNodeName,                 // display name, e.g. "User-3f2a"
     translation: [camera.position.x, camera.position.y - WALK_EYE_Y, camera.position.z],
     rotation: [0, 0, 0, 1],
     extras: { displayName },
@@ -785,8 +995,20 @@ function buildAvatarNodeDescriptor() {
 }
 
 function sendAvatarAdd() {
-  if (!wsConnected) return
-  sendMessage({ type: 'add', id: sessionId, seq: 1, node: buildAvatarNodeDescriptor() })
+  if (!wsConnected || !som) return
+  const descriptor = buildAvatarNodeDescriptor()
+
+  // Add local avatar to own SOM so it appears in tree view and can be referenced
+  const localNode = som.ingestNode(descriptor)
+  som.scene.addChild(localNode)
+
+  // Correctness check
+  console.assert(som.getNodeByName(avatarNodeName) !== null,
+    `Local avatar node "${avatarNodeName}" should be present in SOM`)
+
+  // Announce to server (server adds to its SOM; others receive via broadcast)
+  sendMessage({ type: 'add', id: sessionId, seq: 1, node: descriptor })
+  refreshSomTree()
 }
 
 // ---------------------------------------------------------------------------
@@ -798,7 +1020,7 @@ async function onSomDump(msg) {
     const doc = await io.readJSON({ json: msg.gltf, resources: {} })
     await loadSceneFromGltfDoc(doc, 'server (som-dump)')
     logInfo('Scene replaced from server som-dump')
-    // Now announce our avatar into the world
+    refreshSomTree()
     sendAvatarAdd()
   } catch (err) {
     logInfo('som-dump load error: ' + err.message, true)
@@ -823,6 +1045,7 @@ function connect() {
     btnConnect.disabled = true
     btnDisconnect.disabled = false
     btnSend.disabled = false
+    qsSend.disabled = false
     sendMessage({ type: 'hello', id: sessionId, capabilities: { tick: { interval: 1000 } } })
   })
 
@@ -831,16 +1054,16 @@ function connect() {
     try { msg = JSON.parse(ev.data) } catch { return }
     logMessage('inbound', msg)
     switch (msg.type) {
-      case 'hello':    onServerHello(msg);                                       break
-      case 'som-dump': onSomDump(msg).catch(err => console.error(err));          break
-      case 'set':      applySet(msg);                                            break
-      case 'add':      applyAdd(msg);                                            break
-      case 'remove':   applyRemove(msg);                                         break
-      case 'join':     onJoin(msg);                                              break
-      case 'leave':    onLeave(msg);                                             break
-      case 'view':     onView(msg);                                              break
-      case 'tick':     /* filtered in log */                                     break
-      case 'error':    onError(msg);                                             break
+      case 'hello':    onServerHello(msg);                                      break
+      case 'som-dump': onSomDump(msg).catch(err => console.error(err));         break
+      case 'set':      applySet(msg);                                           break
+      case 'add':      applyAdd(msg);                                           break
+      case 'remove':   applyRemove(msg);                                        break
+      case 'join':     onJoin(msg);                                             break
+      case 'leave':    onLeave(msg);                                            break
+      case 'view':     onView(msg);                                             break
+      case 'tick':     /* filtered in log */                                    break
+      case 'error':    onError(msg);                                            break
     }
   })
 
@@ -852,6 +1075,7 @@ function connect() {
     btnConnect.disabled = false
     btnDisconnect.disabled = true
     btnSend.disabled = true
+    qsSend.disabled = true
     ws = null
   })
 
@@ -877,7 +1101,6 @@ function onServerHello(msg) {
 
 function onJoin(msg) {
   if (msg.id === myServerId) return
-  // Avatar rendering is handled via SOM (ingestNode on 'add' message)
   logInfo('peer joined: ' + msg.id.slice(0, 8))
 }
 
@@ -888,8 +1111,10 @@ function onLeave(msg) {
 function onView(msg) {
   if (msg.id === myServerId) return
   if (!som) return
-  // Update avatar SOM node — DocumentView propagates to Three.js automatically
-  const node = som.getNodeByName(msg.id)
+  // Server broadcasts view with the full session UUID as id; derive the peer's
+  // avatar node name using the same scheme: "User-" + first 4 chars of UUID.
+  const peerNodeName = `User-${msg.id.slice(0, 4)}`
+  const node = som.getNodeByName(peerNodeName)
   if (node) {
     if (msg.position) node.translation = msg.position
     if (msg.look)     node.rotation    = lookToQuaternion(msg.look)
