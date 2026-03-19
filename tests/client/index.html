@@ -580,7 +580,7 @@ const TEMPLATES = {
 
   remove: () => JSON.stringify({ type: 'remove', seq: 1, node: 'crate-01' }, null, 2),
 
-  view: () => JSON.stringify({ type: 'view', position: [0.0, 1.7, 0.0] }, null, 2),
+  view: () => JSON.stringify({ type: 'view', seq:1, position: [0.0, 1.7, 0.0] }, null, 2),
 }
 
 // ---------------------------------------------------------------------------
@@ -763,7 +763,7 @@ function broadcastView() {
   const cosPitch = Math.cos(walkPitch), sinPitch = Math.sin(walkPitch)
   const look = [-sinYaw * cosPitch, sinPitch, -cosYaw * cosPitch]
 
-  const msg = { type: 'view', position: pos, look }
+  const msg = { type: 'view', seq:1, position: pos, look }
 
   const fwdX = -sinYaw, fwdZ = -cosYaw
   const rgtX =  cosYaw, rgtZ = -sinYaw
