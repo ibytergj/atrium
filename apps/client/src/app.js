@@ -18,6 +18,9 @@ const connectBtn    = document.getElementById('connectBtn')
 const statusDot     = document.getElementById('statusDot')
 const viewportEl    = document.getElementById('viewport')
 const overlayEl     = document.getElementById('overlay')
+const hudWorldEl    = document.getElementById('hud-world')
+const hudYouEl      = document.getElementById('hud-you')
+const hudPeersEl    = document.getElementById('hud-peers')
 
 // ---------------------------------------------------------------------------
 // Three.js renderer / scene
@@ -52,6 +55,12 @@ camera.position.set(0, 1.6, 4)
 const CAMERA_OFFSET_Y = 2.0   // meters above avatar
 const CAMERA_OFFSET_Z = 4.0   // meters behind avatar (+Z = behind in glTF right-handed)
 
+// ---------------------------------------------------------------------------
+// Navigation mode
+// ---------------------------------------------------------------------------
+
+const USE_POINTER_LOCK = false  // true = FPS pointer-lock, false = drag-to-look
+
 // Resize handler
 function onResize() {
   const w = viewportEl.clientWidth
@@ -73,7 +82,7 @@ let sceneGroup = null
 function initDocumentView(somDocument) {
   if (docView) { docView.dispose(); threeScene.remove(sceneGroup) }
   docView    = new DocumentView(renderer)
-  
+
   const sceneDef = somDocument.document.getRoot().listScenes()[0]
   sceneGroup = docView.view(sceneDef)
   threeScene.add(sceneGroup)
@@ -160,21 +169,63 @@ function buildAvatarDescriptor(name) {
 }
 
 // ---------------------------------------------------------------------------
+// HUD
+// ---------------------------------------------------------------------------
+
+function updateHud() {
+  hudPeersEl.textContent = client.connected
+    ? `Peers: ${peerMeshes.size}`
+    : ''
+  hudYouEl.textContent = client.connected && client.displayName
+    ? `You: ${client.displayName}`
+    : ''
+}
+
+// ---------------------------------------------------------------------------
+// Connection state UI
+// ---------------------------------------------------------------------------
+
+function setConnectionState(state) {
+  statusDot.className = 'status-dot ' + state
+
+  if (state === 'connecting') {
+    connectBtn.textContent = 'Connecting...'
+    connectBtn.disabled    = true
+  } else if (state === 'connected') {
+    connectBtn.textContent = 'Disconnect'
+    connectBtn.disabled    = false
+  } else {
+    // disconnected or error
+    connectBtn.textContent = 'Connect'
+    connectBtn.disabled    = false
+  }
+
+  updateHud()
+}
+
+// ---------------------------------------------------------------------------
 // AtriumClient
 // ---------------------------------------------------------------------------
 
 const client = new AtriumClient({ debug: false })
 window.atriumClient = client   // expose for manual console testing
 
-// Local avatar and camera child nodes — set on session:ready
+// Local avatar and camera child nodes — set on world:loaded (when connected)
 let localAvatarNode  = null
 let localCameraNode  = null
 
-client.on('world:loaded', () => {
+client.on('world:loaded', ({ name, description, author }) => {
   if (!client.som) return
   initDocumentView(client.som)
-  if (client.connected)
-  {
+
+  // HUD world line
+  hudWorldEl.textContent = name ? `World: ${name}` : ''
+
+  // Console metadata
+  console.log(`[app] World: ${name ?? '(unnamed)'}${author ? ` by ${author}` : ''}`)
+  if (description) console.log(`[app]   ${description}`)
+
+  if (client.connected) {
     const displayName = client.displayName
     localAvatarNode = client.som.getNodeByName(displayName)
     if (!localAvatarNode) return
@@ -185,48 +236,43 @@ client.on('world:loaded', () => {
       translation: [0, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z],
     })
     localAvatarNode.addChild(localCameraNode)
-
   }
 })
 
 client.on('session:ready', () => {
-/*  if (!client.som) return
-  const displayName = client.displayName
-  localAvatarNode = client.som.getNodeByName(displayName)
-  if (!localAvatarNode) return
-
-  // Create a local-only camera child node with third-person offset
-  localCameraNode = client.som.createNode({
-    name:        `${displayName}-camera`,
-    translation: [0, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z],
-  })
-  localAvatarNode.addChild(localCameraNode)
-*/})
+  setConnectionState('connected')
+  updateHud()
+})
 
 client.on('peer:join', ({ displayName }) => {
   addPeerMesh(displayName)
+  updateHud()
+  console.log(`[app] Peer joined: ${displayName} (${peerMeshes.size} peer${peerMeshes.size === 1 ? '' : 's'})`)
 })
 
 client.on('peer:leave', ({ displayName }) => {
   removePeerMesh(displayName)
+  updateHud()
+  console.log(`[app] Peer left: ${displayName} (${peerMeshes.size} peer${peerMeshes.size === 1 ? '' : 's'})`)
 })
 
 client.on('peer:view', ({ displayName, position, look }) => {
   updatePeerMesh(displayName, position, look)
 })
 
-client.on('connected',    () => setStatus('connected'))
-client.on('disconnected', () => setStatus('disconnected'))
-client.on('error', (err) => console.error('[app] client error:', err))
+client.on('disconnected', () => {
+  localAvatarNode = null
+  localCameraNode = null
+  setConnectionState('disconnected')
+})
+client.on('error', (err) => {
+  console.error('[app] client error:', err)
+  setConnectionState('error')
+})
 
 // ---------------------------------------------------------------------------
 // UI actions
 // ---------------------------------------------------------------------------
-
-function setStatus(state) {
-  statusDot.className = 'status-dot ' + state
-  connectBtn.textContent = state === 'connected' ? 'Disconnect' : 'Connect'
-}
 
 loadBtn.addEventListener('click', async () => {
   const url = worldUrlInput.value.trim()
@@ -235,7 +281,9 @@ loadBtn.addEventListener('click', async () => {
   overlayEl.textContent = 'Loading…'
   try {
     await client.loadWorld(url)
-    overlayEl.textContent = 'Click to capture mouse · WASD to move · Mouse to look · Esc to release'
+    overlayEl.textContent = USE_POINTER_LOCK
+      ? 'Click to capture mouse · WASD to move · Mouse to look · Esc to release'
+      : 'Drag to look · WASD to move'
   } catch (err) {
     overlayEl.textContent = 'Load failed: ' + err.message
     console.error(err)
@@ -245,55 +293,51 @@ loadBtn.addEventListener('click', async () => {
 })
 
 connectBtn.addEventListener('click', () => {
-  if (connectBtn.textContent === 'Disconnect') {
+  if (client.connected) {
     client.disconnect()
     return
   }
   const wsUrl = wsUrlInput.value.trim()
   if (!wsUrl) return
-  setStatus('connecting')
-//  const { displayName } = deriveIdentity()
+  setConnectionState('connecting')
   const avatar = buildAvatarDescriptor()
   client.connect(wsUrl, { avatar })
 })
 
-function deriveIdentity() {
-  // Called just before connect — identity is freshly generated each connect()
-  // We need displayName to build the avatar descriptor before connect() sets it.
-  // We use a temp UUID to derive; AtriumClient will generate its own.
-  // For v0.1, pre-build with a placeholder and accept the mismatch is OK —
-  // the descriptor name is what matters, not the interim UUID.
-  const tmpId   = crypto.randomUUID()
-  const shortId = tmpId.slice(0, 4)
-  return { displayName: `User-${shortId}` }
-}
-
 // ---------------------------------------------------------------------------
-// First-person navigation
+// Navigation
 // ---------------------------------------------------------------------------
 
 const keys      = new Set()
 let yaw         = 0    // radians
 let pitch       = 0    // radians, clamped
 let pointerLock = false
+let dragging    = false
 
-const SPEED     = 1.4  // m/s default
-const TICK_MS   = 1000 / 60
+const SPEED   = 1.4  // m/s default
+const TICK_MS = 1000 / 60
 
-viewportEl.addEventListener('click', () => {
-  viewportEl.requestPointerLock()
-})
-
-document.addEventListener('pointerlockchange', () => {
-  pointerLock = document.pointerLockElement === viewportEl
-})
-
-document.addEventListener('mousemove', (e) => {
-  if (!pointerLock) return
-  yaw   -= e.movementX * 0.002
-  pitch -= e.movementY * 0.002
-  pitch  = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, pitch))
-})
+if (USE_POINTER_LOCK) {
+  viewportEl.addEventListener('click', () => { viewportEl.requestPointerLock() })
+  document.addEventListener('pointerlockchange', () => {
+    pointerLock = document.pointerLockElement === viewportEl
+  })
+  document.addEventListener('mousemove', (e) => {
+    if (!pointerLock) return
+    yaw   -= e.movementX * 0.002
+    pitch -= e.movementY * 0.002
+    pitch  = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, pitch))
+  })
+} else {
+  viewportEl.addEventListener('mousedown', () => { dragging = true })
+  document.addEventListener('mouseup',     () => { dragging = false })
+  document.addEventListener('mousemove',   (e) => {
+    if (!dragging) return
+    yaw   -= e.movementX * 0.002
+    pitch -= e.movementY * 0.002
+    pitch  = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, pitch))
+  })
+}
 
 document.addEventListener('keydown', (e) => { keys.add(e.code) })
 document.addEventListener('keyup',   (e) => { keys.delete(e.code) })
@@ -371,12 +415,11 @@ function tick(now) {
     camera.rotateX(pitch)
 
     // Report view state
-    const look     = getLookVector()
     const avatarLook = [Math.sin(yaw), 0, -Math.cos(yaw)]
-    const position = [...avatarPos]
+    const position   = [...avatarPos]
     client.setView({
       position,
-      avatarLook,
+      look:     avatarLook,
       move:     move ?? [0, 0, 0],
       velocity: move ? SPEED : 0,
     })

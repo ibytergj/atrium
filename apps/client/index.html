@@ -73,11 +73,12 @@
   .status-dot {
     width: 8px; height: 8px;
     border-radius: 50%;
-    background: #555;
+    background: #888;
     flex-shrink: 0;
   }
-  .status-dot.connected  { background: #34d399; }
-  .status-dot.connecting { background: #fbbf24; }
+  .status-dot.connected    { background: #5cb85c; }
+  .status-dot.connecting   { background: #f0ad4e; }
+  .status-dot.error        { background: #d9534f; }
 
   /* ── Viewport (fills remaining space) ─────────────── */
   #viewport {
@@ -85,7 +86,7 @@
     position: relative;
     overflow: hidden;
     background: #0a0a0a;
-    cursor: crosshair;
+    cursor: default;
   }
   #viewport canvas {
     display: block;
@@ -93,9 +94,28 @@
     height: 100% !important;
   }
 
+  /* ── HUD — top-left world info ─────────────────────── */
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 12px;
+    background: rgba(0, 0, 0, 0.5);
+    color: #fff;
+    font-size: 12px;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    padding: 7px 12px;
+    border-radius: 6px;
+    pointer-events: none;
+    line-height: 1.8;
+    min-width: 180px;
+  }
+  #hud div:empty { display: none; }
+
+  /* ── Overlay — bottom-left nav hints / status ─────── */
   #overlay {
     position: absolute;
-    top: 10px; left: 12px;
+    bottom: 10px;
+    left: 12px;
     font-size: 11px;
     color: #64748b;
     pointer-events: none;
@@ -145,13 +165,18 @@
   <button id="loadBtn" class="primary">Load</button>
   <span class="ws-label">Server:</span>
   <input id="wsUrl" type="text" value="ws://localhost:3000" style="width:180px" />
-  <button id="connectBtn">Connect</button>
   <div class="status-dot" id="statusDot"></div>
+  <button id="connectBtn">Connect</button>
 </div>
 
 <!-- Viewport -->
 <div id="viewport">
-  <div id="overlay">Click to capture mouse · WASD to move · Mouse to look · Esc to release</div>
+  <div id="hud">
+    <div id="hud-world"></div>
+    <div id="hud-you"></div>
+    <div id="hud-peers"></div>
+  </div>
+  <div id="overlay"></div>
   <div id="crosshair"></div>
 </div>
 
