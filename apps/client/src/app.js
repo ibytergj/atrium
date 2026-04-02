@@ -8,6 +8,7 @@ import { DocumentView } from '@gltf-transform/view'
 import { AtriumClient }        from '@atrium/client'
 import { AvatarController }    from '@atrium/client/AvatarController'
 import { NavigationController } from '@atrium/client/NavigationController'
+import { LabelOverlay }        from './LabelOverlay.js'
 
 // ---------------------------------------------------------------------------
 // DOM refs
@@ -23,6 +24,7 @@ const overlayEl     = document.getElementById('overlay')
 const hudWorldEl    = document.getElementById('hud-world')
 const hudYouEl      = document.getElementById('hud-you')
 const hudPeersEl    = document.getElementById('hud-peers')
+const hudHintEl     = document.getElementById('hud-hint')
 
 // ---------------------------------------------------------------------------
 // Three.js renderer / scene
@@ -58,10 +60,17 @@ const CAMERA_OFFSET_Y = 2.0   // meters above avatar
 const CAMERA_OFFSET_Z = 4.0   // meters behind avatar (+Z = behind in glTF right-handed)
 
 // ---------------------------------------------------------------------------
-// Navigation mode
+// Navigation / camera mode state
 // ---------------------------------------------------------------------------
 
-const USE_POINTER_LOCK = false  // true = FPS pointer-lock, false = drag-to-look
+let usePointerLock = false   // default: drag-to-look; M key toggles
+let firstPerson    = false   // default: third-person when connected; V key toggles
+
+// ---------------------------------------------------------------------------
+// Peer label overlay
+// ---------------------------------------------------------------------------
+
+const labels = new LabelOverlay(viewportEl, camera)
 
 // Resize handler
 function onResize() {
@@ -136,6 +145,20 @@ function updateHud() {
     : ''
 }
 
+function updateHintText() {
+  const hasAvatar = !!avatar.localNode
+
+  const mouseMode   = usePointerLock ? 'Click to look' : 'Drag to look'
+  const mouseToggle = usePointerLock ? '[M] drag mode'  : '[M] mouse lock'
+
+  if (hasAvatar) {
+    const cameraToggle = firstPerson ? '[V] third person' : '[V] first person'
+    hudHintEl.textContent = `${mouseMode} · WASD to move · ${mouseToggle} · ${cameraToggle}`
+  } else {
+    hudHintEl.textContent = `${mouseMode} · WASD to move · ${mouseToggle}`
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Connection state UI
 // ---------------------------------------------------------------------------
@@ -193,11 +216,14 @@ client.on('world:loaded', ({ name, description, author }) => {
 
 client.on('session:ready', () => {
   setConnectionState('connected')
-  updateHud()
+  updateHintText()
 })
 
 client.on('disconnected', () => {
+  labels.clear()
   setConnectionState('disconnected')
+  firstPerson = false   // reset to third-person for next session
+  updateHintText()
 })
 
 client.on('error', (err) => {
@@ -211,15 +237,18 @@ client.on('error', (err) => {
 
 avatar.on('avatar:local-ready', () => {
   updateHud()
+  updateHintText()
 })
 
-avatar.on('avatar:peer-added', ({ displayName }) => {
+avatar.on('avatar:peer-added', ({ displayName, node }) => {
   console.log(`[app] Peer joined: ${displayName} (${avatar.peerCount} peer${avatar.peerCount === 1 ? '' : 's'})`)
+  labels.addLabel(displayName, node)
   updateHud()
 })
 
 avatar.on('avatar:peer-removed', ({ displayName }) => {
   console.log(`[app] Peer left: ${displayName} (${avatar.peerCount} peer${avatar.peerCount === 1 ? '' : 's'})`)
+  labels.removeLabel(displayName)
   updateHud()
 })
 
@@ -234,9 +263,7 @@ loadBtn.addEventListener('click', async () => {
   overlayEl.textContent = 'Loading…'
   try {
     await client.loadWorld(url)
-    overlayEl.textContent = USE_POINTER_LOCK
-      ? 'Click to capture mouse · WASD to move · Mouse to look · Esc to release'
-      : 'Drag to look · WASD to move'
+    overlayEl.textContent = ''
   } catch (err) {
     overlayEl.textContent = 'Load failed: ' + err.message
     console.error(err)
@@ -259,31 +286,63 @@ connectBtn.addEventListener('click', () => {
 
 // ---------------------------------------------------------------------------
 // Navigation — delegate input to NavigationController
+// Both paths are wired at startup; the active path is gated by usePointerLock.
 // ---------------------------------------------------------------------------
 
-let pointerLock = false
-let dragging    = false
+let pointerLocked = false
+let dragging      = false
 
-if (USE_POINTER_LOCK) {
-  viewportEl.addEventListener('click', () => { viewportEl.requestPointerLock() })
-  document.addEventListener('pointerlockchange', () => {
-    pointerLock = document.pointerLockElement === viewportEl
-  })
-  document.addEventListener('mousemove', (e) => {
-    if (!pointerLock) return
-    nav.onMouseMove(e.movementX, e.movementY)
-  })
-} else {
-  viewportEl.addEventListener('mousedown', () => { dragging = true })
-  document.addEventListener('mouseup',     () => { dragging = false })
-  document.addEventListener('mousemove',   (e) => {
-    if (!dragging) return
-    nav.onMouseMove(e.movementX, e.movementY)
-  })
-}
+document.addEventListener('pointerlockchange', () => {
+  pointerLocked = !!document.pointerLockElement
+})
 
-document.addEventListener('keydown', (e) => nav.onKeyDown(e.code))
-document.addEventListener('keyup',   (e) => nav.onKeyUp(e.code))
+viewportEl.addEventListener('click', () => {
+  if (usePointerLock) viewportEl.requestPointerLock()
+})
+
+viewportEl.addEventListener('mousedown', () => {
+  if (!usePointerLock) dragging = true
+})
+
+document.addEventListener('mouseup', () => { dragging = false })
+
+document.addEventListener('mousemove', (e) => {
+  if (usePointerLock && pointerLocked) {
+    nav.onMouseMove(e.movementX, e.movementY)
+  } else if (!usePointerLock && dragging) {
+    nav.onMouseMove(e.movementX, e.movementY)
+  }
+})
+
+document.addEventListener('keydown', (e) => {
+  // M — toggle navigation mode (drag-to-look ↔ pointer lock)
+  if (e.code === 'KeyM') {
+    usePointerLock = !usePointerLock
+    if (!usePointerLock && document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+    updateHintText()
+    return
+  }
+
+  // V — toggle camera perspective (third-person ↔ first-person)
+  if (e.code === 'KeyV' && avatar.localNode) {
+    firstPerson = !firstPerson
+    if (firstPerson) {
+      avatar.cameraNode.translation = [0, 1.6, 0]
+      avatar.localNode.visible = false
+    } else {
+      avatar.cameraNode.translation = [0, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z]
+      avatar.localNode.visible = true
+    }
+    updateHintText()
+    return
+  }
+
+  nav.onKeyDown(e.code)
+})
+
+document.addEventListener('keyup', (e) => nav.onKeyUp(e.code))
 
 // ---------------------------------------------------------------------------
 // Tick loop
@@ -310,7 +369,9 @@ function tick(now) {
     const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
     const avatarPos = localNode.translation ?? [0, 0, 0]
     const camOffset = cameraNode.translation ?? [0, 0, 0]
-    const hasOffset = Math.abs(camOffset[1]) > 0.001 || Math.abs(camOffset[2]) > 0.001
+    // Only Z offset means "behind the avatar" (third-person).
+    // First-person at eye height has Y but no Z — check Z only.
+    const hasOffset = Math.abs(camOffset[2]) > 0.001
 
     if (hasOffset) {
       // Third-person: offset camera behind and above avatar, look at avatar head
@@ -325,14 +386,20 @@ function tick(now) {
       camera.lookAt(lookTarget)
       camera.rotateX(pitch)
     } else {
-      // First-person (static mode): camera at avatar position, direct yaw+pitch
+      // First-person: camera at avatar position (with Y eye height), direct yaw+pitch
       camera.position.set(avatarPos[0], avatarPos[1], avatarPos[2])
       camera.quaternion.copy(qYaw).multiply(qPitch)
     }
   }
+
+  // Update peer labels after camera sync so projections use current frame position
+  labels.update()
 
   // if (docView) docView.render()
   renderer.render(threeScene, camera)
 }
 
 requestAnimationFrame(tick)
+
+// Initial hint text
+updateHintText()

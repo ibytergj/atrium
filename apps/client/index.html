@@ -111,8 +111,20 @@
   }
   #hud div:empty { display: none; }
 
-  /* ── Overlay — bottom-left nav hints / status ─────── */
+  /* ── Overlay — transient load/error status ────────── */
   #overlay {
+    position: absolute;
+    bottom: 30px;
+    left: 12px;
+    font-size: 11px;
+    color: #64748b;
+    pointer-events: none;
+    font-family: 'Cascadia Code', 'Fira Code', monospace;
+    line-height: 1.6;
+  }
+
+  /* ── HUD hint — persistent controls hint, bottom-left  */
+  #hud-hint {
     position: absolute;
     bottom: 10px;
     left: 12px;
@@ -179,6 +191,7 @@
     <div id="hud-peers"></div>
   </div>
   <div id="overlay"></div>
+  <div id="hud-hint"></div>
   <div id="crosshair"></div>
 </div>
 
