@@ -155,6 +155,133 @@ test('NavigationController — setMode validates against allowed modes', () => {
   assert.strictEqual(nav.mode, 'FLY')
 })
 
+// ---------------------------------------------------------------------------
+// ORBIT mode tests
+// ---------------------------------------------------------------------------
+
+test('NavigationController — ORBIT: onMouseMove updates azimuth and elevation', () => {
+  const { nav } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  nav._orbitAzimuth   = 0
+  nav._orbitElevation = 0
+  nav.onMouseMove(100, 50)
+  assert.ok(Math.abs(nav._orbitAzimuth - (-0.2)) < 0.0001,
+    `azimuth should be ~-0.2, got ${nav._orbitAzimuth}`)
+  assert.ok(Math.abs(nav._orbitElevation - 0.1) < 0.0001,
+    `elevation should be ~0.1, got ${nav._orbitElevation}`)
+})
+
+test('NavigationController — ORBIT: elevation clamped to prevent flipping', () => {
+  const { nav } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  nav.onMouseMove(0, 10000)
+  assert.ok(nav._orbitElevation <= Math.PI / 2.2,
+    `elevation ${nav._orbitElevation} should be <= PI/2.2`)
+  nav.onMouseMove(0, -10000)
+  assert.ok(nav._orbitElevation >= -Math.PI / 2.2,
+    `elevation ${nav._orbitElevation} should be >= -PI/2.2`)
+})
+
+test('NavigationController — ORBIT: onWheel adjusts radius', () => {
+  const { nav } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  const initial = nav.orbitRadius
+  nav.onWheel(1)   // deltaY > 0 → zoom out
+  assert.ok(nav.orbitRadius > initial,
+    `radius should increase on scroll down, got ${nav.orbitRadius}`)
+  const afterOut = nav.orbitRadius
+  nav.onWheel(-1)  // deltaY < 0 → zoom in
+  assert.ok(nav.orbitRadius < afterOut,
+    `radius should decrease on scroll up, got ${nav.orbitRadius}`)
+})
+
+test('NavigationController — ORBIT: onWheel radius clamped (min 0.5, max 100)', () => {
+  const { nav } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  for (let i = 0; i < 200; i++) nav.onWheel(-1)
+  assert.ok(nav.orbitRadius >= 0.5,
+    `radius should not go below 0.5, got ${nav.orbitRadius}`)
+  for (let i = 0; i < 200; i++) nav.onWheel(1)
+  assert.ok(nav.orbitRadius <= 100,
+    `radius should not exceed 100, got ${nav.orbitRadius}`)
+})
+
+test('NavigationController — ORBIT: tick positions node at correct spherical coordinates', () => {
+  const { nav, avatar } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  nav._orbitAzimuth   = 0
+  nav._orbitElevation = 0
+  nav._orbitRadius    = 10
+  nav._orbitTarget    = [0, 0, 0]
+  nav.tick(0.016)
+  const pos = avatar.localNode.translation
+  // az=0, el=0, r=10 → x=0, y=0, z=10
+  assert.ok(Math.abs(pos[0]) < 0.0001, `x should be ~0, got ${pos[0]}`)
+  assert.ok(Math.abs(pos[1]) < 0.0001, `y should be ~0, got ${pos[1]}`)
+  assert.ok(Math.abs(pos[2] - 10) < 0.0001, `z should be ~10, got ${pos[2]}`)
+})
+
+test('NavigationController — ORBIT: WASD keys produce no movement', () => {
+  const { nav, avatar } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  nav._orbitAzimuth   = 0
+  nav._orbitElevation = 0
+  nav._orbitRadius    = 10
+  nav._orbitTarget    = [0, 0, 0]
+  nav.tick(0.016)
+  const before = [...avatar.localNode.translation]
+  nav.onKeyDown('KeyW')
+  nav.onKeyDown('KeyA')
+  nav.tick(0.016)
+  const after = avatar.localNode.translation
+  assert.ok(Math.abs(after[0] - before[0]) < 0.0001,
+    `X should not change from WASD in ORBIT, got ${after[0]} vs ${before[0]}`)
+  assert.ok(Math.abs(after[2] - before[2]) < 0.0001,
+    `Z should not change from WASD in ORBIT, got ${after[2]} vs ${before[2]}`)
+})
+
+test('NavigationController — ORBIT: setView called with zero move and velocity', () => {
+  const { nav, client } = makeWiredAvatar()
+  nav.setMode('ORBIT')
+  nav.tick(0.016)
+  assert.ok(client.viewCalls.length > 0, 'setView should have been called')
+  const last = client.viewCalls[client.viewCalls.length - 1]
+  assert.deepStrictEqual(last.move, [0, 0, 0], 'move should be [0,0,0] in ORBIT mode')
+  assert.strictEqual(last.velocity, 0, 'velocity should be 0 in ORBIT mode')
+})
+
+test('NavigationController — ORBIT: mode switch WALK→ORBIT initializes orbit state from current position', () => {
+  const { nav, avatar } = makeWiredAvatar()
+  avatar.localNode.translation = [0, 0, 5]
+  nav.setMode('ORBIT')
+  // target=[0,0,0], pos=[0,0,5] → radius=5, azimuth=atan2(0,5)=0, elevation=asin(0)=0
+  assert.ok(Math.abs(nav.orbitRadius - 5) < 0.0001,
+    `radius should be 5, got ${nav.orbitRadius}`)
+  assert.ok(Math.abs(nav._orbitAzimuth) < 0.0001,
+    `azimuth should be ~0, got ${nav._orbitAzimuth}`)
+  assert.ok(Math.abs(nav._orbitElevation) < 0.0001,
+    `elevation should be ~0, got ${nav._orbitElevation}`)
+})
+
+test('NavigationController — ORBIT: mode switch does not teleport camera (radius derived from position)', () => {
+  const { nav, avatar } = makeWiredAvatar()
+  avatar.localNode.translation = [10, 5, 0]
+  nav.setMode('ORBIT')
+  // target=[0,0,0], pos=[10,5,0] → radius = sqrt(100+25) = ~11.18
+  const expected = Math.sqrt(10 * 10 + 5 * 5)
+  assert.ok(Math.abs(nav.orbitRadius - expected) < 0.01,
+    `radius should be ~${expected.toFixed(2)}, got ${nav.orbitRadius}`)
+})
+
+test('NavigationController — onWheel ignored in WALK mode', () => {
+  const { nav } = makeWiredAvatar()
+  // mode is WALK (default)
+  const before = nav._orbitRadius
+  nav.onWheel(1)
+  assert.strictEqual(nav._orbitRadius, before,
+    'orbitRadius should not change when onWheel called in WALK mode')
+})
+
 test('NavigationController — tick with no keys calls setView with zero velocity', () => {
   const { nav, client } = makeWiredAvatar()
   // First tick with movement

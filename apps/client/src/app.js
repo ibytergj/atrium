@@ -25,6 +25,7 @@ const hudWorldEl    = document.getElementById('hud-world')
 const hudYouEl      = document.getElementById('hud-you')
 const hudPeersEl    = document.getElementById('hud-peers')
 const hudHintEl     = document.getElementById('hud-hint')
+const modeSwitcher  = document.getElementById('mode-switcher')
 
 // ---------------------------------------------------------------------------
 // Three.js renderer / scene
@@ -146,8 +147,12 @@ function updateHud() {
 }
 
 function updateHintText() {
-  const hasAvatar = !!avatar.localNode
+  if (nav.mode === 'ORBIT') {
+    hudHintEl.textContent = 'Drag to orbit · Scroll to zoom'
+    return
+  }
 
+  const hasAvatar   = !!avatar.localNode
   const mouseMode   = usePointerLock ? 'Click to look' : 'Drag to look'
   const mouseToggle = usePointerLock ? '[M] drag mode'  : '[M] mouse lock'
 
@@ -224,6 +229,11 @@ client.on('disconnected', () => {
   setConnectionState('disconnected')
   firstPerson = false   // reset to third-person for next session
   updateHintText()
+
+  // Reload the world in static mode — clears avatar/peer nodes from the scene
+  // and restores NavigationController's localNode for input to work again.
+  const url = worldUrlInput.value.trim()
+  if (url) client.loadWorld(url)
 })
 
 client.on('error', (err) => {
@@ -315,8 +325,8 @@ document.addEventListener('mousemove', (e) => {
 })
 
 document.addEventListener('keydown', (e) => {
-  // M — toggle navigation mode (drag-to-look ↔ pointer lock)
-  if (e.code === 'KeyM') {
+  // M / V — mode-specific hot keys, ignored in ORBIT
+  if (e.code === 'KeyM' && nav.mode !== 'ORBIT') {
     usePointerLock = !usePointerLock
     if (!usePointerLock && document.pointerLockElement) {
       document.exitPointerLock()
@@ -325,8 +335,8 @@ document.addEventListener('keydown', (e) => {
     return
   }
 
-  // V — toggle camera perspective (third-person ↔ first-person)
-  if (e.code === 'KeyV' && avatar.localNode) {
+  // V — toggle camera perspective (third-person ↔ first-person); ignored in ORBIT
+  if (e.code === 'KeyV' && avatar.localNode && nav.mode !== 'ORBIT') {
     firstPerson = !firstPerson
     if (firstPerson) {
       avatar.cameraNode.translation = [0, 1.6, 0]
@@ -343,6 +353,16 @@ document.addEventListener('keydown', (e) => {
 })
 
 document.addEventListener('keyup', (e) => nav.onKeyUp(e.code))
+
+modeSwitcher.addEventListener('change', (e) => {
+  nav.setMode(e.target.value)
+  updateHintText()
+})
+
+viewportEl.addEventListener('wheel', (e) => {
+  e.preventDefault()
+  nav.onWheel(e.deltaY)
+}, { passive: false })
 
 // ---------------------------------------------------------------------------
 // Tick loop
@@ -363,32 +383,40 @@ function tick(now) {
   const localNode  = avatar.localNode
   const cameraNode = avatar.cameraNode
   if (localNode && cameraNode) {
-    const yaw   = nav.yaw
-    const pitch = nav.pitch
-    const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
-    const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
-    const avatarPos = localNode.translation ?? [0, 0, 0]
-    const camOffset = cameraNode.translation ?? [0, 0, 0]
-    // Only Z offset means "behind the avatar" (third-person).
-    // First-person at eye height has Y but no Z — check Z only.
-    const hasOffset = Math.abs(camOffset[2]) > 0.001
-
-    if (hasOffset) {
-      // Third-person: offset camera behind and above avatar, look at avatar head
-      const offset = new THREE.Vector3(0, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z)
-      offset.applyQuaternion(qYaw)
-      camera.position.set(
-        avatarPos[0] + offset.x,
-        avatarPos[1] + offset.y,
-        avatarPos[2] + offset.z,
-      )
-      const lookTarget = new THREE.Vector3(avatarPos[0], avatarPos[1] + 1.0, avatarPos[2])
-      camera.lookAt(lookTarget)
-      camera.rotateX(pitch)
+    if (nav.mode === 'ORBIT') {
+      // ORBIT: position from node (set by NavigationController), look at target
+      const pos = localNode.translation ?? [0, 0, 0]
+      camera.position.set(pos[0], pos[1], pos[2])
+      const t = nav.orbitTarget
+      camera.lookAt(t[0], t[1], t[2])
     } else {
-      // First-person: camera at avatar position (with Y eye height), direct yaw+pitch
-      camera.position.set(avatarPos[0], avatarPos[1], avatarPos[2])
-      camera.quaternion.copy(qYaw).multiply(qPitch)
+      const yaw   = nav.yaw
+      const pitch = nav.pitch
+      const qYaw   = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw)
+      const qPitch = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), pitch)
+      const avatarPos = localNode.translation ?? [0, 0, 0]
+      const camOffset = cameraNode.translation ?? [0, 0, 0]
+      // Only Z offset means "behind the avatar" (third-person).
+      // First-person at eye height has Y but no Z — check Z only.
+      const hasOffset = Math.abs(camOffset[2]) > 0.001
+
+      if (hasOffset) {
+        // Third-person: offset camera behind and above avatar, look at avatar head
+        const offset = new THREE.Vector3(0, CAMERA_OFFSET_Y, CAMERA_OFFSET_Z)
+        offset.applyQuaternion(qYaw)
+        camera.position.set(
+          avatarPos[0] + offset.x,
+          avatarPos[1] + offset.y,
+          avatarPos[2] + offset.z,
+        )
+        const lookTarget = new THREE.Vector3(avatarPos[0], avatarPos[1] + 1.0, avatarPos[2])
+        camera.lookAt(lookTarget)
+        camera.rotateX(pitch)
+      } else {
+        // First-person: camera at avatar position (with Y eye height), direct yaw+pitch
+        camera.position.set(avatarPos[0], avatarPos[1], avatarPos[2])
+        camera.quaternion.copy(qYaw).multiply(qPitch)
+      }
     }
   }
 

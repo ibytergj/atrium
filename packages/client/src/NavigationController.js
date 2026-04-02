@@ -17,32 +17,58 @@ export class NavigationController {
     this._speed            = 1.4
     this._allowedModes     = ['WALK', 'FLY', 'ORBIT']
 
+    // ORBIT state
+    this._orbitTarget    = [0, 0, 0]
+    this._orbitRadius    = 10.0
+    this._orbitAzimuth   = 0
+    this._orbitElevation = 0.3
+
     avatar.on('avatar:local-ready', () => this._readNavInfo())
   }
 
   // ---------------------------------------------------------------------------
-  // Getters
+  // Getters / setters
   // ---------------------------------------------------------------------------
 
   get mode()  { return this._mode }
   get yaw()   { return this._yaw }
   get pitch() { return this._pitch }
 
+  get orbitTarget()    { return this._orbitTarget }
+  set orbitTarget(v)   { this._orbitTarget = v }
+  get orbitRadius()    { return this._orbitRadius }
+  set orbitRadius(v)   { this._orbitRadius = v }
+
   // ---------------------------------------------------------------------------
   // Input
   // ---------------------------------------------------------------------------
 
   onMouseMove(dx, dy) {
+    if (this._mode === 'ORBIT') {
+      this._orbitAzimuth  -= dx * this._mouseSensitivity
+      this._orbitElevation += dy * this._mouseSensitivity
+      this._orbitElevation = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, this._orbitElevation))
+      return
+    }
     this._yaw   -= dx * this._mouseSensitivity
     this._pitch -= dy * this._mouseSensitivity
     this._pitch  = Math.max(-Math.PI / 2.5, Math.min(Math.PI / 2.5, this._pitch))
+  }
+
+  onWheel(deltaY) {
+    if (this._mode !== 'ORBIT') return
+    this._orbitRadius *= deltaY > 0 ? 1.1 : 0.9
+    this._orbitRadius  = Math.max(0.5, Math.min(100, this._orbitRadius))
   }
 
   onKeyDown(key) { this._keys.add(key) }
   onKeyUp(key)   { this._keys.delete(key) }
 
   setMode(mode) {
-    if (this._allowedModes.includes(mode)) this._mode = mode
+    if (!this._allowedModes.includes(mode)) return
+    if (mode === this._mode) return
+    if (mode === 'ORBIT') this._initOrbitFromCurrentPosition()
+    this._mode = mode
   }
 
   // ---------------------------------------------------------------------------
@@ -53,6 +79,36 @@ export class NavigationController {
     const localNode  = this._avatar.localNode
     const cameraNode = this._avatar.cameraNode
     if (!localNode) return
+
+    // ── ORBIT mode ────────────────────────────────────────────────────────────
+    if (this._mode === 'ORBIT') {
+      const az = this._orbitAzimuth
+      const el = this._orbitElevation
+      const r  = this._orbitRadius
+      const t  = this._orbitTarget
+
+      // Spherical to Cartesian (Y-up)
+      const x = t[0] + r * Math.cos(el) * Math.sin(az)
+      const y = t[1] + r * Math.sin(el)
+      const z = t[2] + r * Math.cos(el) * Math.cos(az)
+
+      localNode.translation = [x, y, z]
+
+      // look vector: from camera toward target
+      const lx = t[0] - x
+      const ly = t[1] - y
+      const lz = t[2] - z
+      const ll = Math.sqrt(lx * lx + ly * ly + lz * lz) || 1
+      this._avatar.setView({
+        position: [x, y, z],
+        look:     [lx / ll, ly / ll, lz / ll],
+        move:     [0, 0, 0],
+        velocity: 0,
+      })
+      return
+    }
+
+    // ── WALK / FLY mode ───────────────────────────────────────────────────────
 
     // Apply yaw quaternion to avatar node
     localNode.rotation = yawQuat(this._yaw)
@@ -101,6 +157,19 @@ export class NavigationController {
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
+
+  _initOrbitFromCurrentPosition() {
+    const pos    = this._avatar.localNode?.translation ?? [0, 0, 0]
+    const target = this._orbitTarget
+
+    const dx = pos[0] - target[0]
+    const dy = pos[1] - target[1]
+    const dz = pos[2] - target[2]
+
+    this._orbitRadius    = Math.sqrt(dx * dx + dy * dy + dz * dz) || 10
+    this._orbitAzimuth   = Math.atan2(dx, dz)
+    this._orbitElevation = Math.asin(Math.max(-1, Math.min(1, dy / this._orbitRadius)))
+  }
 
   _readNavInfo() {
     const som = this._avatar._client?.som
