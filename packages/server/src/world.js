@@ -49,6 +49,21 @@ export async function createWorld(gltfPath) {
         }
       }
     }
+
+    // Inline images for the same reason — texture URIs are server-local paths
+    for (const img of json.images ?? []) {
+      if (img.uri && !img.uri.startsWith('data:')) {
+        const data = resources[img.uri]
+        if (data) {
+          const ext  = img.uri.split('.').pop().toLowerCase()
+          const mime = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+                     : ext === 'webp'                  ? 'image/webp'
+                     :                                   'image/png'
+          img.uri = `data:${mime};base64,` + Buffer.from(data).toString('base64')
+        }
+      }
+    }
+
     return json
   }
 
