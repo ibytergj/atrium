@@ -209,7 +209,38 @@ const nav = new NavigationController(avatar, {
 
 client.on('world:loaded', ({ name, description, author }) => {
   if (!client.som) return
+
+  // Clear previous background/environment before loading new world
+  threeScene.background = null
+  threeScene.environment = null
+
   initDocumentView(client.som)
+
+  // Load equirectangular background from extras.atrium.background
+  const extras = client.som.document.getRoot().getExtras()
+  const bg = extras?.atrium?.background
+  if (bg?.texture) {
+    if (bg.type && bg.type !== 'equirectangular') {
+      console.warn('Unsupported background type:', bg.type)
+    } else {
+      const worldUrl = worldUrlInput.value.trim()
+      const absWorldUrl = new URL(worldUrl, window.location.href).href
+      const baseUrl = absWorldUrl.substring(0, absWorldUrl.lastIndexOf('/') + 1)
+      const textureUrl = new URL(bg.texture, baseUrl).href
+      const loader = new THREE.TextureLoader()
+      loader.load(
+        textureUrl,
+        (texture) => {
+          texture.mapping = THREE.EquirectangularReflectionMapping
+          texture.colorSpace = THREE.SRGBColorSpace
+          threeScene.background = texture
+          threeScene.environment = texture
+        },
+        undefined,
+        (err) => console.warn('Failed to load background texture:', textureUrl, err),
+      )
+    }
+  }
 
   // HUD world line
   hudWorldEl.textContent = name ? `World: ${name}` : ''
