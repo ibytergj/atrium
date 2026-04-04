@@ -36,6 +36,12 @@ renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 viewportEl.appendChild(renderer.domElement)
 
+// Make the canvas focusable so keyboard events are scoped to the viewport
+const canvas = renderer.domElement
+canvas.setAttribute('tabindex', '0')
+canvas.style.outline = 'none'
+canvas.addEventListener('pointerdown', () => canvas.focus())
+
 const threeScene = new THREE.Scene()
 threeScene.background = new THREE.Color(0x111111)
 
@@ -233,6 +239,7 @@ client.on('som:set', ({ nodeName }) => {
   if (!client.som) return
   if (nodeName === '__document__') {
     worldInfo.refresh()
+    loadBackground(client.som.extras?.atrium?.background, worldBaseUrl)
     return
   }
   const selected = treeView.selectedNode
@@ -305,8 +312,8 @@ viewportEl.addEventListener('wheel', (e) => {
   nav.onWheel(e.deltaY)
 }, { passive: false })
 
-document.addEventListener('keydown', (e) => nav.onKeyDown(e.code))
-document.addEventListener('keyup',   (e) => nav.onKeyUp(e.code))
+document.addEventListener('keydown', (e) => { if (e.target === canvas) nav.onKeyDown(e.code) })
+document.addEventListener('keyup',   (e) => { if (e.target === canvas) nav.onKeyUp(e.code) })
 
 // ---------------------------------------------------------------------------
 // Tick loop
