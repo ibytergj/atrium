@@ -8,22 +8,24 @@ import { AvatarController }     from '@atrium/client/AvatarController'
 import { NavigationController } from '@atrium/client/NavigationController'
 import { TreeView }             from './TreeView.js'
 import { PropertySheet }        from './PropertySheet.js'
+import { WorldInfoPanel }       from './WorldInfoPanel.js'
 
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
 
-const worldUrlInput = document.getElementById('worldUrl')
-const wsUrlInput    = document.getElementById('wsUrl')
-const loadBtn       = document.getElementById('loadBtn')
-const connectBtn    = document.getElementById('connectBtn')
-const statusDot     = document.getElementById('statusDot')
-const modeSwitcher  = document.getElementById('mode-switcher')
-const viewportEl    = document.getElementById('viewport')
-const statusBar     = document.getElementById('status-bar')
-const treePanelEl   = document.getElementById('tree-panel')
-const propsPanelEl  = document.getElementById('props-panel')
-const propsHeaderEl = document.getElementById('props-header')
+const worldUrlInput  = document.getElementById('worldUrl')
+const wsUrlInput     = document.getElementById('wsUrl')
+const loadBtn        = document.getElementById('loadBtn')
+const connectBtn     = document.getElementById('connectBtn')
+const statusDot      = document.getElementById('statusDot')
+const modeSwitcher   = document.getElementById('mode-switcher')
+const viewportEl     = document.getElementById('viewport')
+const statusBar      = document.getElementById('status-bar')
+const treePanelEl    = document.getElementById('tree-panel')
+const propsPanelEl   = document.getElementById('props-panel')
+const propsHeaderEl  = document.getElementById('props-header')
+const worldInfoEl    = document.getElementById('world-info')
 
 // ---------------------------------------------------------------------------
 // Three.js renderer / scene
@@ -33,6 +35,12 @@ const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 viewportEl.appendChild(renderer.domElement)
+
+// Make the canvas focusable so keyboard events are scoped to the viewport
+const canvas = renderer.domElement
+canvas.setAttribute('tabindex', '0')
+canvas.style.outline = 'none'
+canvas.addEventListener('pointerdown', () => canvas.focus())
 
 const threeScene = new THREE.Scene()
 threeScene.background = new THREE.Color(0x111111)
@@ -101,11 +109,45 @@ const nav = new NavigationController(avatar, {
 })
 
 // ---------------------------------------------------------------------------
-// TreeView + PropertySheet
+// Background loading
+// ---------------------------------------------------------------------------
+
+let worldBaseUrl = ''
+
+function loadBackground(bg, baseUrl) {
+  if (!bg?.texture) {
+    threeScene.background = null
+    threeScene.environment = null
+    return
+  }
+  if (bg.type && bg.type !== 'equirectangular') {
+    console.warn('Unsupported background type:', bg.type)
+    return
+  }
+  const textureUrl = new URL(bg.texture, baseUrl).href
+  const loader = new THREE.TextureLoader()
+  loader.load(
+    textureUrl,
+    (texture) => {
+      texture.mapping   = THREE.EquirectangularReflectionMapping
+      texture.colorSpace = THREE.SRGBColorSpace
+      threeScene.background  = texture
+      threeScene.environment = texture
+    },
+    undefined,
+    (err) => console.warn('Failed to load background texture:', textureUrl, err),
+  )
+}
+
+// ---------------------------------------------------------------------------
+// TreeView + PropertySheet + WorldInfoPanel
 // ---------------------------------------------------------------------------
 
 const treeView = new TreeView(treePanelEl)
 const propSheet = new PropertySheet(propsPanelEl, propsHeaderEl)
+const worldInfo = new WorldInfoPanel(worldInfoEl, {
+  onBackgroundChange: (bg) => loadBackground(bg, worldBaseUrl),
+})
 
 treeView.onSelect = (somNode) => {
   propSheet.show(somNode)
@@ -139,10 +181,24 @@ function updateStatusBar(text) {
 
 client.on('world:loaded', ({ name }) => {
   if (!client.som) return
+
+  // Derive base URL for resolving relative texture paths
+  const rawUrl = worldUrlInput.value.trim()
+  const absUrl  = new URL(rawUrl, window.location.href).href
+  worldBaseUrl  = absUrl.substring(0, absUrl.lastIndexOf('/') + 1)
+
+  // Clear previous background/environment before loading new world
+  threeScene.background  = null
+  threeScene.environment = null
+
   initDocumentView(client.som)
   treeView.build(client.som)
   propSheet.clear()
+  worldInfo.show(client.som)
   updateStatusBar(name ? `World: ${name}` : '')
+
+  // Load background via shared helper
+  loadBackground(client.som.extras?.atrium?.background, worldBaseUrl)
 })
 
 client.on('session:ready', () => {
@@ -153,6 +209,7 @@ client.on('session:ready', () => {
 client.on('disconnected', () => {
   setConnectionState('disconnected')
   propSheet.clear()
+  worldInfo.clear()
   updateStatusBar('')
 
   // Reload world in static mode — restores nav node and clears avatar geometry
@@ -177,9 +234,14 @@ client.on('som:remove', ({ nodeName }) => {
   if (!sel || sel.name === nodeName) propSheet.clear()
 })
 
-// Live property updates on the selected node
+// Live property updates on the selected node, and world-info panel for document extras
 client.on('som:set', ({ nodeName }) => {
   if (!client.som) return
+  if (nodeName === '__document__') {
+    worldInfo.refresh()
+    loadBackground(client.som.extras?.atrium?.background, worldBaseUrl)
+    return
+  }
   const selected = treeView.selectedNode
   if (selected && selected.name === nodeName) {
     const fresh = client.som.getNodeByName(nodeName)
@@ -250,8 +312,8 @@ viewportEl.addEventListener('wheel', (e) => {
   nav.onWheel(e.deltaY)
 }, { passive: false })
 
-document.addEventListener('keydown', (e) => nav.onKeyDown(e.code))
-document.addEventListener('keyup',   (e) => nav.onKeyUp(e.code))
+document.addEventListener('keydown', (e) => { if (e.target === canvas) nav.onKeyDown(e.code) })
+document.addEventListener('keyup',   (e) => { if (e.target === canvas) nav.onKeyUp(e.code) })
 
 // ---------------------------------------------------------------------------
 // Tick loop

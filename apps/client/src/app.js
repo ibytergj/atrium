@@ -36,6 +36,12 @@ renderer.setPixelRatio(window.devicePixelRatio)
 renderer.shadowMap.enabled = true
 viewportEl.appendChild(renderer.domElement)
 
+// Make the canvas focusable so keyboard events are scoped to the viewport
+const canvas = renderer.domElement
+canvas.setAttribute('tabindex', '0')
+canvas.style.outline = 'none'
+canvas.addEventListener('pointerdown', () => canvas.focus())
+
 const threeScene = new THREE.Scene()
 threeScene.background = new THREE.Color(0x1a1a2e)
 
@@ -204,12 +210,77 @@ const nav = new NavigationController(avatar, {
 })
 
 // ---------------------------------------------------------------------------
+// Dynamic background reload - should move to another module
+// ---------------------------------------------------------------------------
+
+function loadBackground(bg, baseUrl) {
+  if (!bg?.texture) {
+    threeScene.background = null
+    threeScene.environment = null
+    return
+  }
+  if (bg.type && bg.type !== 'equirectangular') {
+    console.warn('Unsupported background type:', bg.type)
+    return
+  }
+  const textureUrl = new URL(bg.texture, baseUrl).href
+  const loader = new THREE.TextureLoader()
+  loader.load(
+    textureUrl,
+    (texture) => {
+      texture.mapping   = THREE.EquirectangularReflectionMapping
+      texture.colorSpace = THREE.SRGBColorSpace
+      threeScene.background  = texture
+      threeScene.environment = texture
+    },
+    undefined,
+    (err) => console.warn('Failed to load background texture:', textureUrl, err),
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Client event listeners
 // ---------------------------------------------------------------------------
 
 client.on('world:loaded', ({ name, description, author }) => {
   if (!client.som) return
+
+  // Derive base URL for resolving relative texture paths
+  const rawUrl = worldUrlInput.value.trim()
+  const absUrl  = new URL(rawUrl, window.location.href).href
+  worldBaseUrl  = absUrl.substring(0, absUrl.lastIndexOf('/') + 1)
+
+  // Clear previous background/environment before loading new world
+  threeScene.background = null
+  threeScene.environment = null
+
   initDocumentView(client.som)
+
+  // Load equirectangular background from extras.atrium.background
+  const extras = client.som.document.getRoot().getExtras()
+  const bg = extras?.atrium?.background
+  if (bg?.texture) {
+    if (bg.type && bg.type !== 'equirectangular') {
+      console.warn('Unsupported background type:', bg.type)
+    } else {
+      const worldUrl = worldUrlInput.value.trim()
+      const absWorldUrl = new URL(worldUrl, window.location.href).href
+      const baseUrl = absWorldUrl.substring(0, absWorldUrl.lastIndexOf('/') + 1)
+      const textureUrl = new URL(bg.texture, baseUrl).href
+      const loader = new THREE.TextureLoader()
+      loader.load(
+        textureUrl,
+        (texture) => {
+          texture.mapping = THREE.EquirectangularReflectionMapping
+          texture.colorSpace = THREE.SRGBColorSpace
+          threeScene.background = texture
+          threeScene.environment = texture
+        },
+        undefined,
+        (err) => console.warn('Failed to load background texture:', textureUrl, err),
+      )
+    }
+  }
 
   // HUD world line
   hudWorldEl.textContent = name ? `World: ${name}` : ''
@@ -260,6 +331,16 @@ avatar.on('avatar:peer-removed', ({ displayName }) => {
   console.log(`[app] Peer left: ${displayName} (${avatar.peerCount} peer${avatar.peerCount === 1 ? '' : 's'})`)
   labels.removeLabel(displayName)
   updateHud()
+})
+
+// Live property updates on the selected node, and world-info panel for document extras
+let worldBaseUrl = ''
+client.on('som:set', ({ nodeName }) => {
+  if (!client.som) return
+  if (nodeName === '__document__') {
+    loadBackground(client.som.extras?.atrium?.background, worldBaseUrl)
+    return
+  }
 })
 
 // ---------------------------------------------------------------------------
@@ -325,6 +406,8 @@ document.addEventListener('mousemove', (e) => {
 })
 
 document.addEventListener('keydown', (e) => {
+  if (e.target !== canvas) return
+
   // M / V — mode-specific hot keys, ignored in ORBIT
   if (e.code === 'KeyM' && nav.mode !== 'ORBIT') {
     usePointerLock = !usePointerLock
@@ -352,7 +435,7 @@ document.addEventListener('keydown', (e) => {
   nav.onKeyDown(e.code)
 })
 
-document.addEventListener('keyup', (e) => nav.onKeyUp(e.code))
+document.addEventListener('keyup', (e) => { if (e.target === canvas) nav.onKeyUp(e.code) })
 
 modeSwitcher.addEventListener('change', (e) => {
   nav.setMode(e.target.value)
